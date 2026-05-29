@@ -77,7 +77,6 @@ export const EXERCISES_DB = [
   { id: 'c3', name: 'Croci ai Cavi', category: EXERCISE_CATEGORIES.CHEST, equipmentType: B },
   { id: 'c4', name: 'Chest Press', category: EXERCISE_CATEGORIES.CHEST, equipmentType: B },
   { id: 'c5', name: 'Piegamenti sulle braccia (Push-up)', category: EXERCISE_CATEGORIES.CHEST, equipmentType: B },
-  { id: 'c6', name: 'Dip alle Parallele', category: EXERCISE_CATEGORIES.CHEST, secondaryCategories: [EXERCISE_CATEGORIES.TRICEPS], equipmentType: B },
   { id: 'c7', name: 'Croci Manubri Panca Piana', category: EXERCISE_CATEGORIES.CHEST, equipmentType: D },
   { id: 'c8', name: 'Panca Inclinata Bilanciere', category: EXERCISE_CATEGORIES.CHEST, equipmentType: B },
   { id: 'c9', name: 'Panca Declinata Bilanciere', category: EXERCISE_CATEGORIES.CHEST, equipmentType: B },
@@ -162,6 +161,7 @@ export const EXERCISES_DB = [
   { id: 'bi10', name: 'Zottman Curl', category: EXERCISE_CATEGORIES.BICEPS, secondaryCategories: [EXERCISE_CATEGORIES.FOREARMS], equipmentType: D },
 
   // --- TRICIPITI (TRICEPS) ---
+  { id: 'c6', name: 'Dip alle Parallele', category: EXERCISE_CATEGORIES.TRICEPS, secondaryCategories: [EXERCISE_CATEGORIES.CHEST], equipmentType: B },
   { id: 'tr1', name: 'Pushdown Tricipiti ai Cavi', category: EXERCISE_CATEGORIES.TRICEPS, equipmentType: B },
   { id: 'tr2', name: 'French Press', category: EXERCISE_CATEGORIES.TRICEPS, equipmentType: B },
   { id: 'tr3', name: 'Estensioni Dietro Nuca Manubrio', category: EXERCISE_CATEGORIES.TRICEPS, equipmentType: D },

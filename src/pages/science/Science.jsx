@@ -85,7 +85,7 @@ function determineStrengthLevel(bw, bench, squat, deadlift, gender) {
   // Intermediate: Bench 1.0-1.5x, Squat 1.2-1.8x, DL 1.5-2.0x
   // Advanced: Bench > 1.5x, Squat > 1.8x, DL > 2.0x
   // Women standards are generally ~60-70% of men's ratios
-  
+
   const mult = gender === 'female' ? 0.7 : 1.0;
   let points = 0; // 0=Beginner, 1=Intermediate, 2=Advanced
 
@@ -115,7 +115,7 @@ function Dashboard({ report, reset }) {
   const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
   const weeksElapsed = Math.floor((Date.now() - report.timestamp) / MS_PER_WEEK);
   const currentWeekNum = Math.min(Math.max(1, weeksElapsed + 1), 12); // Bound 1-12
-  
+
   // Forecasting State
   const [selectedWeek, setSelectedWeek] = useState(currentWeekNum);
   const weekToDisplay = selectedWeek;
@@ -135,7 +135,7 @@ function Dashboard({ report, reset }) {
     for (let w = 1; w <= 12; w++) {
       // Add 12-hour buffer same as Profile
       const weekStart = (mesoStart + (w - 1) * MS_PER_WEEK_CONST) - (12 * 60 * 60 * 1000);
-      const weekEnd = mesoStart + w * MS_PER_WEEK_CONST;
+      const weekEnd = mesoStart + w * MS_PER_WEEK_CONST - (12 * 60 * 60 * 1000);
       const volumes = calculateScienceVolume(history, allExercisesDB, report.baseLandmarks, weekStart, weekEnd);
       const hasData = Object.values(volumes).some(v => v > 0);
       if (hasData) weekMuscleMap[w] = volumes;
@@ -150,17 +150,17 @@ function Dashboard({ report, reset }) {
 
   const isBossFight = weekToDisplay === 4 || weekToDisplay === 8;
 
-  const expLabel = { 
-    'beginner': 'Principiante', 
-    'intermediate': 'Intermedio', 
-    'advanced': 'Avanzato' 
+  const expLabel = {
+    'beginner': 'Principiante',
+    'intermediate': 'Intermedio',
+    'advanced': 'Avanzato'
   }[report.experienceLevel];
 
   // Helper to get exactly how many sets we need THIS week for a specific muscle
   const getTargetForMuscle = (muscle) => {
     const lm = report.baseLandmarks[muscle];
     if (!lm) return 0;
-    
+
     // Mesocycle 3 (Weeks 9-12) is resensitization/deload
     if (currentMonth === 3) {
       if (weekToDisplay === 9 || weekToDisplay === 10) return Math.max(0, lm.mev - 2); // Deload
@@ -168,9 +168,9 @@ function Dashboard({ report, reset }) {
     }
 
     // Determine if it's currently focused
-    const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) || 
-                    (currentMonth === 2 && report.focus2.includes(muscle));
-    
+    const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) ||
+      (currentMonth === 2 && report.focus2.includes(muscle));
+
     if (!isFocus) {
       // Maintenance
       return lm.mev;
@@ -179,7 +179,7 @@ function Dashboard({ report, reset }) {
     // It's in focus. We span from MAV to MRV over 4 weeks.
     // Week relative to the month (1, 2, 3, 4)
     const relativeWeek = weekToDisplay - ((currentMonth - 1) * 4);
-    
+
     // Total series to add across the 4 weeks
     // Target calc logic
     const gap = lm.mrv - lm.mav;
@@ -213,7 +213,7 @@ function Dashboard({ report, reset }) {
 
   const getWeekLabels = () => {
     const arr = [];
-    for(let i = 1; i <= 12; i++) arr.push(i);
+    for (let i = 1; i <= 12; i++) arr.push(i);
     return arr;
   };
 
@@ -225,10 +225,10 @@ function Dashboard({ report, reset }) {
           <p className="subtitle">Il tuo protocollo personalizzato</p>
         </div>
       </header>
-      
+
       <main className="app-main">
         <div className="science-container" style={{ animation: 'none' }}>
-          
+
           <div className="report-header">
             <h2>Il tuo Mesociclo V2</h2>
             <p style={{ color: 'var(--text-muted)' }}>Status Coefficiente Forza: <strong>{expLabel}</strong></p>
@@ -240,17 +240,17 @@ function Dashboard({ report, reset }) {
           <div className="summary-grid">
             <div className="summary-card">
               <span className="summary-label">Mese Stimato</span>
-              <span className="summary-value" style={{ fontSize: '1.4rem' }}>{currentMonth} <span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>/ 3</span></span>
+              <span className="summary-value" style={{ fontSize: '1.4rem' }}>{currentMonth} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ 3</span></span>
             </div>
             <div className="summary-card">
               <span className="summary-label">Settimana Attuale</span>
-              <span className="summary-value" style={{ fontSize: '1.4rem', color: 'var(--primary-color)' }}>{currentWeekNum} <span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>/ 12</span></span>
+              <span className="summary-value" style={{ fontSize: '1.4rem', color: 'var(--primary-color)' }}>{currentWeekNum} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ 12</span></span>
             </div>
           </div>
 
           {/* Forecasting Week Selector */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <button 
+            <button
               onClick={() => setSelectedWeek(prev => Math.max(1, prev - 1))}
               disabled={selectedWeek === 1}
               style={{ background: 'transparent', border: 'none', color: selectedWeek === 1 ? 'var(--text-muted)' : 'var(--primary-color)', cursor: selectedWeek === 1 ? 'not-allowed' : 'pointer' }}>
@@ -262,7 +262,7 @@ function Dashboard({ report, reset }) {
                 Settimana {selectedWeek}
               </strong>
             </div>
-            <button 
+            <button
               onClick={() => setSelectedWeek(prev => Math.min(12, prev + 1))}
               disabled={selectedWeek === 12}
               style={{ background: 'transparent', border: 'none', color: selectedWeek === 12 ? 'var(--text-muted)' : 'var(--primary-color)', cursor: selectedWeek === 12 ? 'not-allowed' : 'pointer' }}>
@@ -275,10 +275,10 @@ function Dashboard({ report, reset }) {
               <Target size={18} color={isBossFight ? '#ff3b30' : "var(--primary-color)"} />
               {isBossFight ? "BOSS FIGHT: Settimana MRV" : `Obiettivi Settimana ${selectedWeek}`}
             </h3>
-            
+
             {isBossFight && (
               <p style={{ color: '#ff3b30', fontSize: '0.85rem', marginBottom: '1rem', fontWeight: '600', animation: 'pulse 2s infinite' }}>
-                <AlertTriangle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
+                <AlertTriangle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
                 Raggiungi il Massimo Volume Recuperabile. Usa tutto lo sforzo che hai.
               </p>
             )}
@@ -286,10 +286,10 @@ function Dashboard({ report, reset }) {
             <div className="focus-list">
               {Object.keys(report.baseLandmarks).map(muscle => {
                 const targetSets = getTargetForMuscle(muscle);
-                const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) || 
-                                (currentMonth === 2 && report.focus2.includes(muscle));
+                const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) ||
+                  (currentMonth === 2 && report.focus2.includes(muscle));
                 const badge = getPhaseBadge(muscle, targetSets);
-                                
+
                 return (
                   <div key={muscle} className="focus-item" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', marginBottom: '4px', alignItems: 'center' }}>
                     <span className="focus-item-label" style={{ color: isFocus ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: isFocus ? '600' : 'normal', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -302,8 +302,8 @@ function Dashboard({ report, reset }) {
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {weekToDisplay <= currentWeekNum && getActualSetsForWeek[weekToDisplay] && getActualSetsForWeek[weekToDisplay][muscle] !== undefined && (
-                        <span style={{ 
-                          fontSize: '0.85rem', 
+                        <span style={{
+                          fontSize: '0.85rem',
                           fontWeight: '700',
                           color: getActualSetsForWeek[weekToDisplay][muscle] >= targetSets ? 'var(--success-color, #34c759)' : 'var(--error-color, #ff3b30)',
                           background: getActualSetsForWeek[weekToDisplay][muscle] >= targetSets ? 'rgba(52, 199, 89, 0.12)' : 'rgba(255, 59, 48, 0.12)',
@@ -330,13 +330,13 @@ function Dashboard({ report, reset }) {
 
 
           <h3 style={{ margin: '1rem 0', color: 'var(--text-main)', fontSize: '1.2rem' }}>Calendario Periodizzazione</h3>
-          
+
           <div className="calendar-grid">
             {getWeekLabels().map(w => {
               const isPast = w < currentWeekNum;
               const isCurrent = w === currentWeekNum;
               const isSelected = w === selectedWeek;
-              
+
               let typeClass = 'maintenance';
               if (w >= 9 && w <= 10) typeClass = 'deload';
               else if (w >= 11) typeClass = 'resens';
@@ -344,8 +344,8 @@ function Dashboard({ report, reset }) {
               else typeClass = 'overreaching';
 
               return (
-                <div 
-                  key={w} 
+                <div
+                  key={w}
                   onClick={() => setSelectedWeek(w)}
                   className={`cal-week ${isCurrent ? 'current' : ''} ${isPast ? 'past' : ''} ${typeClass} ${isSelected ? 'selected-week' : ''}`}
                   style={{ cursor: 'pointer', outline: isSelected ? '2px solid white' : 'none', outlineOffset: '2px' }}
@@ -494,65 +494,65 @@ function Science() {
     const bench = parseFloat(answers.stats.bench) || 0;
     const squat = parseFloat(answers.stats.squat) || 0;
     const deadlift = parseFloat(answers.stats.deadlift) || 0;
-    
+
     const level = determineStrengthLevel(bw, bench, squat, deadlift, answers.gender);
 
     // 2. Adjust MEV/MAV/MRV based on Level & Gender
     // Females generally need +1 MEV and can tolerate +2 MRV due to CNS fatigue differences
     // Beginners need less MAV, but MRV is higher relative to their MAV (they recover from total sets easier since load is absolutely lighter)
     // Advanced need more MAV to stimulate, but MRV ceiling is lower (loads are absolutely very high)
-    
-      const availableMuscles = answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m));
 
-      const finalLandmarks = availableMuscles.reduce((acc, m) => {
-        let b = RP_BASE_LANDMARKS[m];
-        
-        // Safety check if base landmarks unexpectedly fail
-        if (!b) return acc;
-        
-        let mev = b.mev;
-        let mav = b.mav;
-        let mrv = b.mrv;
+    const availableMuscles = answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m));
 
-        if (answers.gender === 'female') {
-          mev += 1;
-          mrv += 2;
-          mav += 1;
-        }
+    const finalLandmarks = availableMuscles.reduce((acc, m) => {
+      let b = RP_BASE_LANDMARKS[m];
 
-        if (level === 'beginner') {
-          mav -= 2; // Needs less to grow
-          mrv += 1; // Can tolerate more sets because absolute load is low
-        } else if (level === 'advanced') {
-          mav += 2; // Needs more stimulus to grow
-          mrv -= 2; // Can't tolerate as many sets because absolute load destroys CNS
-        }
+      // Safety check if base landmarks unexpectedly fail
+      if (!b) return acc;
 
-        acc[m] = { 
-          mev: Math.max(0, mev), 
-          mav: Math.max(0, mav), 
-          mrv: Math.max(0, mrv) 
-        };
-        return acc;
-      }, {});
+      let mev = b.mev;
+      let mav = b.mav;
+      let mrv = b.mrv;
 
-      // Sanity check: Ensure if legs='no', they are ABSOLUTELY excluded from final focus arrays to prevent ghost targets
-      const cleanFocus1 = answers.focus1.filter(m => finalLandmarks[m]);
-      const cleanFocus2 = answers.focus2.filter(m => finalLandmarks[m]);
+      if (answers.gender === 'female') {
+        mev += 1;
+        mrv += 2;
+        mav += 1;
+      }
 
-      const report = {
-        timestamp: Date.now(),
-        gender: answers.gender,
-        inputStats: answers.stats,
-        experienceLevel: level,
-        legsIncluded: answers.legs === 'yes',
-        focus1: cleanFocus1,
-        focus2: cleanFocus2,
-        baseLandmarks: finalLandmarks,
-        daysPerWeek: parseInt(answers.daysPerWeek, 10) || 4
+      if (level === 'beginner') {
+        mav -= 2; // Needs less to grow
+        mrv += 1; // Can tolerate more sets because absolute load is low
+      } else if (level === 'advanced') {
+        mav += 2; // Needs more stimulus to grow
+        mrv -= 2; // Can't tolerate as many sets because absolute load destroys CNS
+      }
+
+      acc[m] = {
+        mev: Math.max(0, mev),
+        mav: Math.max(0, mav),
+        mrv: Math.max(0, mrv)
       };
+      return acc;
+    }, {});
 
-      saveScienceReport(report);
+    // Sanity check: Ensure if legs='no', they are ABSOLUTELY excluded from final focus arrays to prevent ghost targets
+    const cleanFocus1 = answers.focus1.filter(m => finalLandmarks[m]);
+    const cleanFocus2 = answers.focus2.filter(m => finalLandmarks[m]);
+
+    const report = {
+      timestamp: Date.now(),
+      gender: answers.gender,
+      inputStats: answers.stats,
+      experienceLevel: level,
+      legsIncluded: answers.legs === 'yes',
+      focus1: cleanFocus1,
+      focus2: cleanFocus2,
+      baseLandmarks: finalLandmarks,
+      daysPerWeek: parseInt(answers.daysPerWeek, 10) || 4
+    };
+
+    saveScienceReport(report);
   };
 
   const resetQuiz = () => {
@@ -573,9 +573,9 @@ function Science() {
   }
 
   const currentQ = QUESTIONS[step] || QUESTIONS[0];
-  
+
   let isNextDisabled = false;
-  
+
   if (currentQ.type === 'inputs') {
     // Validate inputs
     const s = answers.stats;
@@ -590,7 +590,7 @@ function Science() {
     }
 
     const currentAnswer = answers[currentQ.id];
-    isNextDisabled = currentQ.isMulti 
+    isNextDisabled = currentQ.isMulti
       ? (currentAnswer ? currentAnswer.length : 0) === 0 // At least 1 to max N
       : !currentAnswer;
   }
@@ -609,8 +609,8 @@ function Science() {
           <div className="quiz-header">
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Passo {step + 1} di {QUESTIONS.length}</span>
             <div className="progress-bar-container">
-              <div 
-                className="progress-bar-fill" 
+              <div
+                className="progress-bar-fill"
                 style={{ width: `${((step + 1) / QUESTIONS.length) * 100}%` }}
               ></div>
             </div>
@@ -625,8 +625,8 @@ function Science() {
                 {currentQ.fields.map(f => (
                   <div className="input-field" key={f.id}>
                     <label>{f.label}</label>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       inputMode="decimal"
                       placeholder={f.placeholder}
                       value={answers.stats[f.id]}
@@ -639,12 +639,12 @@ function Science() {
             ) : (
               <div className="answers-grid">
                 {(currentQ.options || (answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m))).filter(m => currentQ.id === 'focus2' ? !answers.focus1.includes(m) : true).map(m => ({ value: m, label: m }))).map(opt => {
-                  const isSelected = currentQ.isMulti 
+                  const isSelected = currentQ.isMulti
                     ? (answers[currentQ.id] || []).includes(opt.value)
                     : answers[currentQ.id] === opt.value;
-                    
+
                   return (
-                    <div 
+                    <div
                       key={opt.value}
                       className={`answer-card ${isSelected ? 'selected' : ''}`}
                       onClick={() => handleSelect(currentQ.id, opt.value, currentQ.isMulti, currentQ.maxSelection)}
@@ -666,9 +666,9 @@ function Science() {
                   Indietro
                 </button>
               ) : <div></div>}
-              
-              <button 
-                className="quiz-btn next" 
+
+              <button
+                className="quiz-btn next"
                 disabled={isNextDisabled}
                 onClick={handleNext}
               >
