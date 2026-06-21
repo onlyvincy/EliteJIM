@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
-import { RefreshCw, Zap, Target, BookOpen, Calendar, ChevronRight, ChevronLeft, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Zap, Target, BookOpen, Calendar, ChevronRight, ChevronLeft, AlertTriangle, Pause, Play, Clock, CalendarClock } from 'lucide-react';
 import { EXERCISES_DB } from '../../data/exercises';
 import { calculateScienceVolume } from '../../utils/rpVolume';
 import './Science.css';
@@ -112,15 +112,27 @@ function Dashboard({ report, reset }) {
   if (!report) return null;
 
   // Calculate current week (1 to 12)
+  // If paused, freeze the elapsed time at the moment of pause
   const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
-  const weeksElapsed = Math.floor((Date.now() - report.timestamp) / MS_PER_WEEK);
+  const effectiveNow = report.paused ? (report.pauseStartTime || Date.now()) : Date.now();
+  const weeksElapsed = Math.floor((effectiveNow - report.timestamp) / MS_PER_WEEK);
   const currentWeekNum = Math.min(Math.max(1, weeksElapsed + 1), 12); // Bound 1-12
+
+  // Compute exact end date of current week (always at midnight since timestamp is midnight-aligned)
+  const currentWeekEndMs = report.timestamp + currentWeekNum * MS_PER_WEEK;
+  const currentWeekEndDate = new Date(currentWeekEndMs);
+  const weekEndFormatted = currentWeekEndDate.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
 
   // Forecasting State
   const [selectedWeek, setSelectedWeek] = useState(currentWeekNum);
   const weekToDisplay = selectedWeek;
 
   // Access history and exercises for actual sets calculation
+  const pauseScienceWeek = useStore(state => state.pauseScienceWeek);
+  const resumeScienceWeek = useStore(state => state.resumeScienceWeek);
+  const delayScienceWeek = useStore(state => state.delayScienceWeek);
+  const saveScienceReport = useStore(state => state.saveScienceReport);
+
   const history = useStore(state => state.history);
   const customExercises = useStore(state => state.customExercises || []);
   const allExercisesDB = useMemo(() => [...EXERCISES_DB, ...customExercises], [customExercises]);
@@ -245,6 +257,91 @@ function Dashboard({ report, reset }) {
             <div className="summary-card">
               <span className="summary-label">Settimana Attuale</span>
               <span className="summary-value" style={{ fontSize: '1.4rem', color: 'var(--primary-color)' }}>{currentWeekNum} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ 12</span></span>
+            </div>
+          </div>
+
+          {/* Week End Info + Controls */}
+          <div style={{
+            background: report.paused ? 'rgba(255, 149, 0, 0.08)' : 'rgba(0,0,0,0.3)',
+            border: `1px solid ${report.paused ? 'rgba(255, 149, 0, 0.4)' : 'rgba(255,255,255,0.07)'}`,
+            borderRadius: '16px',
+            padding: '14px 16px',
+            marginBottom: '1rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            {/* Week end date row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <CalendarClock size={18} color={report.paused ? '#ff9500' : 'var(--primary-color)'} style={{ flexShrink: 0 }} />
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>
+                  Fine Week {currentWeekNum}
+                </span>
+                <span style={{ fontWeight: '700', fontSize: '1rem', color: report.paused ? '#ff9500' : 'var(--text-main)' }}>
+                  {weekEndFormatted} · 00:00
+                  {report.paused && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: '#ff9500', fontWeight: '600' }}>⏸ In pausa</span>}
+                </span>
+              </div>
+            </div>
+
+            {/* Controls row */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Pause / Resume button */}
+              <button
+                onClick={() => report.paused ? resumeScienceWeek() : pauseScienceWeek()}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: `1px solid ${report.paused ? 'rgba(52, 199, 89, 0.5)' : 'rgba(255, 149, 0, 0.5)'}`,
+                  background: report.paused ? 'rgba(52, 199, 89, 0.12)' : 'rgba(255, 149, 0, 0.12)',
+                  color: report.paused ? '#34c759' : '#ff9500',
+                  fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer'
+                }}
+              >
+                {report.paused ? <Play size={14} /> : <Pause size={14} />}
+                {report.paused ? 'Riprendi' : 'Pausa'}
+              </button>
+
+              {/* Delay buttons — disabled if paused */}
+              <button
+                onClick={() => !report.paused && delayScienceWeek(1)}
+                disabled={report.paused}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: report.paused ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
+                  color: report.paused ? 'var(--text-muted)' : 'var(--text-main)',
+                  fontSize: '0.85rem', fontWeight: '600',
+                  cursor: report.paused ? 'not-allowed' : 'pointer',
+                  opacity: report.paused ? 0.5 : 1
+                }}
+              >
+                <Clock size={14} />
+                +1 giorno
+              </button>
+
+              <button
+                onClick={() => !report.paused && delayScienceWeek(2)}
+                disabled={report.paused}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: report.paused ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
+                  color: report.paused ? 'var(--text-muted)' : 'var(--text-main)',
+                  fontSize: '0.85rem', fontWeight: '600',
+                  cursor: report.paused ? 'not-allowed' : 'pointer',
+                  opacity: report.paused ? 0.5 : 1
+                }}
+              >
+                <Clock size={14} />
+                +2 giorni
+              </button>
             </div>
           </div>
 
@@ -541,7 +638,8 @@ function Science() {
     const cleanFocus2 = answers.focus2.filter(m => finalLandmarks[m]);
 
     const report = {
-      timestamp: Date.now(),
+      // Normalize to midnight of today (local time) so weeks always end at 00:00
+      timestamp: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
       gender: answers.gender,
       inputStats: answers.stats,
       experienceLevel: level,

@@ -85,6 +85,42 @@ export const useStore = create(
       // --- Science Actions ---
       saveScienceReport: (report) => set({ scienceReport: report }),
       toggleScience: () => set((state) => ({ showScience: !state.showScience })),
+
+      pauseScienceWeek: () => set((state) => {
+        if (!state.scienceReport || state.scienceReport.paused) return state;
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            paused: true,
+            pauseStartTime: Date.now()
+          }
+        };
+      }),
+
+      resumeScienceWeek: () => set((state) => {
+        if (!state.scienceReport || !state.scienceReport.paused) return state;
+        const pauseDuration = Date.now() - (state.scienceReport.pauseStartTime || Date.now());
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            paused: false,
+            pauseStartTime: null,
+            // Shift timestamp forward by pause duration so the week counter doesn't advance during pause
+            timestamp: state.scienceReport.timestamp + pauseDuration
+          }
+        };
+      }),
+
+      delayScienceWeek: (days) => set((state) => {
+        if (!state.scienceReport) return state;
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            timestamp: state.scienceReport.timestamp + (days * MS_PER_DAY)
+          }
+        };
+      }),
       
       // --- Custom Exercises Actions ---
       addCustomExercise: (exercise) =>
