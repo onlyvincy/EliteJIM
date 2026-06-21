@@ -1,20 +1,37 @@
-import React, { useState } from 'react';
-import { useStore } from '../store/useStore';
-import { Calendar, Clock, Dumbbell, ChevronDown, ChevronUp } from 'lucide-react';
-import { SwipeToDelete } from '../components/SwipeToDelete';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useStore } from '../../store/useStore';
+import { Calendar, Clock, ChevronDown, ChevronUp, Edit2, ChevronLeft } from 'lucide-react';
+import { SwipeToDelete } from '../../components/SwipeToDelete';
 import './History.css';
 
 function History() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const history = useStore(state => state.history);
-  // Optional: add a delete history record function to the store
   const setStore = useStore.setState;
   const [expandedSessions, setExpandedSessions] = useState({});
+
+  // If navigated here with editWorkoutId, redirect to the dedicated edit page
+  useEffect(() => {
+    if (location.state?.editWorkoutId && history.length > 0) {
+      const workoutToEdit = history.find(w => w.id === location.state.editWorkoutId);
+      if (workoutToEdit) {
+        navigate(`/edit-workout/${workoutToEdit.id}`, { replace: true });
+      }
+    }
+  }, [location.state, history, navigate]);
 
   const toggleSession = (id) => {
     setExpandedSessions(prev => ({
       ...prev,
       [id]: !prev[id]
     }));
+  };
+
+  const handleEdit = (e, workoutId) => {
+    e.stopPropagation();
+    navigate(`/edit-workout/${workoutId}`);
   };
 
   const handleDelete = (e, id) => {
@@ -28,8 +45,8 @@ function History() {
 
   const formatDate = (timestamp) => {
     return new Date(timestamp).toLocaleDateString('it-IT', {
-      weekday: 'short', 
-      day: 'numeric', 
+      weekday: 'short',
+      day: 'numeric',
       month: 'short',
       year: 'numeric'
     });
@@ -44,7 +61,7 @@ function History() {
 
   const formatDuration = (start, end) => {
     if (!start || !end) return '-';
-    const diff = Math.floor((end - start) / 1000 / 60); // minutes
+    const diff = Math.floor((end - start) / 1000 / 60);
     if (diff < 1) return '< 1 min';
     return `${diff} min`;
   };
@@ -54,7 +71,6 @@ function History() {
     const r = parseInt(reps, 10);
     if (!w || !r || w <= 0 || r <= 0) return null;
     if (r === 1) return w;
-    // Epley Formula
     return w * (1 + r / 30);
   };
 
@@ -68,11 +84,17 @@ function History() {
 
   return (
     <>
-      <header className="app-header">
-        <h1>Storico</h1>
-        <p className="subtitle">I tuoi allenamenti passati</p>
+      <header className="app-header" style={{ position: 'relative' }}>
+        <button
+          onClick={() => navigate(-1)}
+          style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <ChevronLeft size={28} />
+        </button>
+        <h1 style={{ marginLeft: '32px' }}>Storico</h1>
+        <p className="subtitle" style={{ marginLeft: '32px' }}>I tuoi allenamenti passati</p>
       </header>
-      
+
       <main className="app-main history-main">
         {history.length === 0 ? (
           <div className="card empty-history">
@@ -88,8 +110,13 @@ function History() {
               <SwipeToDelete key={workout.id} onDelete={(e) => handleDelete(e, workout.id)}>
                 <div className="history-card" onClick={() => toggleSession(workout.id)} style={{ cursor: 'pointer' }}>
                   <div className="history-header">
-                    <div>
-                      <h3 className="history-title">{workout.name}</h3>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <h3 className="history-title">{workout.name}</h3>
+                        <button onClick={(e) => handleEdit(e, workout.id)} style={{ background: 'transparent', border: 'none', color: 'var(--primary-color)', padding: '4px' }}>
+                          <Edit2 size={16} />
+                        </button>
+                      </div>
                       <div className="history-date">
                         <Calendar size={14} /> {formatDate(workout.startTime)} alle {formatTime(workout.startTime)}
                       </div>
@@ -111,13 +138,12 @@ function History() {
 
                 <div className="history-exercises">
                   {workout.exercises.map((ex, exIdx) => {
-                    const doneSets = ex.sets.filter(s => s.done);
-                    if (doneSets.length === 0) return null; // Skip if no set was marked as done
-                    
-                    // Find the best set (highest estimated 1RM)
+                    const visibleSets = ex.sets.filter(s => s.done);
+                    if (visibleSets.length === 0) return null;
+
                     let bestSetId = null;
                     let max1Rm = 0;
-                    doneSets.forEach(s => {
+                    visibleSets.forEach(s => {
                        const est = calculateOneRepMax(s.kg, s.reps);
                        if (est && est > max1Rm) { max1Rm = est; bestSetId = s.id; }
                     });
@@ -129,9 +155,7 @@ function History() {
                             <span className="h-ex-num">{exIdx + 1}</span>
                             <span className="h-ex-name">{ex.name}</span>
                           </div>
-                          <span className="h-ex-details">
-                            {doneSets.length} set completati
-                          </span>
+                          <span className="h-ex-details">{visibleSets.length} set completati</span>
                         </div>
                         {isExpanded && (
                           <div className="history-ex-sets-table">
@@ -141,7 +165,7 @@ function History() {
                               <span>Reps</span>
                               <span style={{ textAlign: 'right' }}>1RM Est.</span>
                             </div>
-                            {doneSets.map((set, setIdx) => {
+                            {visibleSets.map((set, setIdx) => {
                               const est1rm = calculateOneRepMax(set.kg, set.reps);
                               const isBest = set.id === bestSetId && max1Rm > 0;
                               return (

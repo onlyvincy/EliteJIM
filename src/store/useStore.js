@@ -1,13 +1,44 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { checkStreakInactivity, calculateSessionScore } from '../utils/gamification';
+import { checkStreakInactivity, calculateSessionScore, recalculateTotalXpFromHistory } from '../utils/gamification';
 import { EXERCISES_DB } from '../data/exercises';
 
 export const useStore = create(
   persist(
     (set, get) => ({
       // Array of predefined templates
-      templates: [],
+      templates: [
+        {
+          id: 'tpl-1',
+          name: 'Spinta (Petto/Spalle/Tricipiti)',
+          exercises: [
+            { name: 'Panca Piana Bilanciere', setsCount: 3, targetReps: '8-10', restTime: 90 },
+            { name: 'Military Press', setsCount: 3, targetReps: '8-10', restTime: 90 },
+            { name: 'Alzate Laterali Manubri', setsCount: 3, targetReps: '12-15', restTime: 60 },
+            { name: 'Pushdown Tricipiti ai Cavi', setsCount: 3, targetReps: '12-15', restTime: 60 }
+          ]
+        },
+        {
+          id: 'tpl-2',
+          name: 'Trazione (Dorso/Bicipiti)',
+          exercises: [
+            { name: 'Trazioni alla Sbarra (Pull-up)', setsCount: 3, targetReps: '6-8', restTime: 120 },
+            { name: 'Rematore con Bilanciere', setsCount: 3, targetReps: '8-10', restTime: 90 },
+            { name: 'Pulley Basso', setsCount: 3, targetReps: '10-12', restTime: 90 },
+            { name: 'Curl Bilanciere', setsCount: 3, targetReps: '10-12', restTime: 60 }
+          ]
+        },
+        {
+          id: 'tpl-3',
+          name: 'Gambe (Leg Day)',
+          exercises: [
+            { name: 'Squat con Bilanciere', setsCount: 3, targetReps: '6-8', restTime: 120 },
+            { name: 'Leg Extension', setsCount: 3, targetReps: '12-15', restTime: 60 },
+            { name: 'Leg Curl', setsCount: 3, targetReps: '12-15', restTime: 60 },
+            { name: 'Calf Raise Seduto', setsCount: 3, targetReps: '15-20', restTime: 60 }
+          ]
+        }
+      ],
       // Array of completed workouts
       history: [],
       // Array of custom exercises created by user
@@ -26,6 +57,7 @@ export const useStore = create(
       highestStreak: 0,
       lastWorkoutDate: null,
       recapData: null,
+      showScience: true,
 
       // --- Gamification Actions ---
       clearRecapData: () => set({ recapData: null }),
@@ -39,6 +71,12 @@ export const useStore = create(
           return state;
         });
       },
+      syncGamificationWithHistory: () => {
+        set((state) => {
+          const { userXP, muscleXP, currentStreak, highestStreak } = recalculateTotalXpFromHistory(state.history, [...EXERCISES_DB, ...(state.customExercises || [])]);
+          return { userXP, muscleXP, currentStreak, highestStreak };
+        });
+      },
 
       // --- Rest Timer Actions ---
       setGlobalRestEndTime: (timestamp) => set({ globalRestEndTime: timestamp }),
@@ -46,6 +84,43 @@ export const useStore = create(
 
       // --- Science Actions ---
       saveScienceReport: (report) => set({ scienceReport: report }),
+      toggleScience: () => set((state) => ({ showScience: !state.showScience })),
+
+      pauseScienceWeek: () => set((state) => {
+        if (!state.scienceReport || state.scienceReport.paused) return state;
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            paused: true,
+            pauseStartTime: Date.now()
+          }
+        };
+      }),
+
+      resumeScienceWeek: () => set((state) => {
+        if (!state.scienceReport || !state.scienceReport.paused) return state;
+        const pauseDuration = Date.now() - (state.scienceReport.pauseStartTime || Date.now());
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            paused: false,
+            pauseStartTime: null,
+            // Shift timestamp forward by pause duration so the week counter doesn't advance during pause
+            timestamp: state.scienceReport.timestamp + pauseDuration
+          }
+        };
+      }),
+
+      delayScienceWeek: (days) => set((state) => {
+        if (!state.scienceReport) return state;
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            timestamp: state.scienceReport.timestamp + (days * MS_PER_DAY)
+          }
+        };
+      }),
       
       // --- Custom Exercises Actions ---
       addCustomExercise: (exercise) =>
@@ -56,29 +131,50 @@ export const useStore = create(
       // --- Template Actions ---
       addTemplate: (template) =>
         set((state) => ({ templates: [...state.templates, { ...template, id: Date.now() }] })),
+      updateTemplate: (updatedTemplate) =>
+        set((state) => ({ templates: state.templates.map(t => t.id === updatedTemplate.id ? updatedTemplate : t) })),
       deleteTemplate: (id) =>
         set((state) => ({ templates: state.templates.filter((t) => t.id !== id) })),
 
       // --- Workout Actions ---
       startWorkout: (template) => {
+        const history = get().history;
+
+        // Helper: find the most recent past sets for a given exercise name
+        const findLastSets = (exerciseName) => {
+          for (const w of history) {
+            const pastEx = w.exercises.find(e => e.name === exerciseName);
+            if (pastEx && pastEx.sets && pastEx.sets.length > 0) {
+              return pastEx.sets;
+            }
+          }
+          return null;
+        };
+
         // Build a fresh session from a template
         const session = {
           id: Date.now(),
           templateId: template ? template.id : null,
           name: template ? template.name : 'Allenamento Libero',
           startTime: Date.now(),
-          exercises: template ? template.exercises.map(ex => ({
-            id: Date.now() + Math.random(),
-            name: ex.name,
-            restTime: ex.restTime || 60,
-            sets: Array.from({ length: parseInt(ex.setsCount) || 1 }, (_, i) => ({
-              id: Date.now() + i,
-              kg: '',
-              reps: '',
-              targetReps: ex.targetReps,
-              done: false
-            }))
-          })) : []
+          exercises: template ? template.exercises.map(ex => {
+            const pastSets = findLastSets(ex.name);
+            return {
+              id: Date.now() + Math.random(),
+              name: ex.name,
+              restTime: ex.restTime || 60,
+              sets: Array.from({ length: parseInt(ex.setsCount) || 1 }, (_, i) => {
+                const pastSet = pastSets && pastSets[i] ? pastSets[i] : (pastSets ? pastSets[pastSets.length - 1] : null);
+                return {
+                  id: Date.now() + i,
+                  kg: pastSet ? (pastSet.kg || '') : '',
+                  reps: pastSet ? (pastSet.reps || '') : '',
+                  targetReps: ex.targetReps,
+                  done: false
+                };
+              })
+            };
+          }) : []
         };
         set({ activeWorkout: session });
       },
@@ -173,7 +269,7 @@ export const useStore = create(
             endTime: Date.now()
           };
 
-          const sessionScore = calculateSessionScore(completedWorkout, state.history, EXERCISES_DB);
+          const sessionScore = calculateSessionScore(completedWorkout, state.history, [...EXERCISES_DB, ...(state.customExercises || [])]);
           
           let newStreak = state.currentStreak || 0;
           // Increment streak logic: if they completed at least 3 sets
@@ -217,9 +313,24 @@ export const useStore = create(
       cancelWorkout: () => set({ activeWorkout: null, globalRestEndTime: null }),
 
       deleteWorkout: (workoutId) => {
-        set((state) => ({
-          history: state.history.filter(w => w.id !== workoutId)
-        }));
+        set((state) => {
+          const newHistory = state.history.filter(w => w.id !== workoutId);
+          const { userXP, muscleXP, currentStreak, highestStreak } = recalculateTotalXpFromHistory(newHistory, [...EXERCISES_DB, ...(state.customExercises || [])]);
+          return {
+            history: newHistory,
+            userXP,
+            muscleXP,
+            currentStreak,
+            highestStreak
+          };
+        });
+      },
+
+      updateHistoryWorkout: (workoutId, updates) => {
+        set((state) => {
+          const newHistory = state.history.map(w => w.id === workoutId ? { ...w, ...updates } : w);
+          return { history: newHistory };
+        });
       },
 
       deleteExerciseFromActiveSession: (exerciseId) => {
@@ -233,6 +344,26 @@ export const useStore = create(
           };
         });
       },
+
+      advanceScienceWeek: () => set(state => {
+        if (!state.scienceReport) return state;
+        const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const weeksElapsed = Math.floor((now - state.scienceReport.timestamp) / MS_PER_WEEK);
+        const currentWeek = Math.min(Math.max(1, weeksElapsed + 1), 12);
+        
+        if (currentWeek >= 12) return state; // Already at max week
+
+        // Shift the timestamp so that the NEXT week starts exactly today (with the 12h buffer in mind)
+        const newTimestamp = now - (currentWeek * MS_PER_WEEK);
+        
+        return {
+          scienceReport: {
+            ...state.scienceReport,
+            timestamp: newTimestamp
+          }
+        };
+      }),
 
       deleteSetFromActiveExercise: (exerciseId, setId) => {
         set((state) => {

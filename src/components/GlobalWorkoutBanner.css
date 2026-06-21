@@ -1,0 +1,78 @@
+.global-workout-banner {
+  position: fixed;
+  top: max(env(safe-area-inset-top, 16px), 16px);
+  left: 16px;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  background-color: var(--primary-color);
+  color: #fff;
+  z-index: 150;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 126, 167, 0.4);
+}
+
+.global-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.global-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.global-banner-icon {
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.global-banner-icon.blink {
+  animation: blinker 2s linear infinite;
+}
+
+@keyframes blinker {
+  50% { opacity: 0.5; }
+}
+
+.global-banner-time {
+  font-weight: 800;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+.global-banner-title {
+  font-weight: 500;
+  font-size: 0.85rem;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.global-banner-rest {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: rgba(255, 255, 255, 0.2);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.global-banner-rest-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.global-banner-rest-time {
+  font-weight: 800;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}

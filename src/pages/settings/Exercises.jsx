@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
+import { useStore } from '../../store/useStore';
 import { ArrowLeft, Plus, Search, Trash2, Dumbbell } from 'lucide-react';
-import { EXERCISE_CATEGORIES, EXERCISES_DB } from '../data/exercises';
-import { SwipeToDelete } from '../components/SwipeToDelete';
+import { EXERCISE_CATEGORIES, EXERCISES_DB, EQUIPMENT_TYPES, getExerciseCategories, normalizeName } from '../../data/exercises';
+import { SwipeToDelete } from '../../components/SwipeToDelete';
 import './Settings.css';
 
-function Settings() {
+function Exercises() {
   const navigate = useNavigate();
   const customExercises = useStore(state => state.customExercises || []);
   const addCustomExercise = useStore(state => state.addCustomExercise);
@@ -15,20 +15,22 @@ function Settings() {
   const [searchTerm, setSearchTerm] = useState('');
   const [newExName, setNewExName] = useState('');
   const [newExCategory, setNewExCategory] = useState(EXERCISE_CATEGORIES.CHEST);
+  const [newExEquipment, setNewExEquipment] = useState(EQUIPMENT_TYPES.BARBELL);
   const [isAdding, setIsAdding] = useState(false);
 
   // Combine default and custom exercises
   const allExercises = [...EXERCISES_DB, ...customExercises];
 
   // Filter based on search term
-  const filteredExercises = allExercises.filter(ex => 
-    ex.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    ex.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredExercises = allExercises.filter(ex => {
+    const categories = getExerciseCategories(ex);
+    const categoryMatch = categories.some(cat => cat.toLowerCase().includes(searchTerm.toLowerCase()));
+    return ex.name.toLowerCase().includes(searchTerm.toLowerCase()) || categoryMatch;
+  });
 
-  // Group by category
+  // Group by category — exercises appear in every group they belong to
   const groupedTasks = Object.values(EXERCISE_CATEGORIES).reduce((acc, cat) => {
-    acc[cat] = filteredExercises.filter(e => e.category === cat);
+    acc[cat] = filteredExercises.filter(e => getExerciseCategories(e).includes(cat));
     return acc;
   }, {});
 
@@ -38,20 +40,21 @@ function Settings() {
       return;
     }
     // Check if exists
-    if (allExercises.some(e => e.name.toLowerCase() === newExName.toLowerCase())) {
+    if (allExercises.some(e => normalizeName(e.name) === normalizeName(newExName))) {
       alert("Questo esercizio esiste già nel database!");
       return;
     }
 
-    addCustomExercise({ name: newExName.trim(), category: newExCategory, isCustom: true });
+    addCustomExercise({ name: newExName.trim(), category: newExCategory, equipmentType: newExEquipment, isCustom: true });
     setNewExName('');
+    setNewExEquipment(EQUIPMENT_TYPES.BARBELL);
     setIsAdding(false);
   };
 
   return (
     <div className="settings-container">
       <header className="settings-header">
-        <button className="icon-btn" onClick={() => navigate(-1)}><ArrowLeft size={24} /></button>
+        <button className="icon-btn" style={{ background: 'transparent', border: 'none' }} onClick={() => navigate(-1)}><ArrowLeft size={24} /></button>
         <h2>Database Esercizi</h2>
         <div style={{ width: 44 }}></div> {/* Balance spacer */}
       </header>
@@ -80,7 +83,7 @@ function Settings() {
                 <label>Nome Esercizio</label>
                 <input 
                   type="text" 
-                  placeholder="Es. Panca Piana Manubri 30°" 
+                  placeholder="Es. Panca Piana Bilanciere" 
                   value={newExName}
                   onChange={(e) => setNewExName(e.target.value)}
                   autoFocus
@@ -95,6 +98,16 @@ function Settings() {
                   {Object.values(EXERCISE_CATEGORIES).map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Tipo Attrezzo</label>
+                <select
+                  value={newExEquipment}
+                  onChange={(e) => setNewExEquipment(e.target.value)}
+                >
+                  <option value={EQUIPMENT_TYPES.BARBELL}>Bilanciere / Macchina (+2.5kg)</option>
+                  <option value={EQUIPMENT_TYPES.DUMBBELL}>Manubri (+2kg)</option>
                 </select>
               </div>
               <div className="form-actions">
@@ -146,4 +159,4 @@ function Settings() {
   );
 }
 
-export default Settings;
+export default Exercises;

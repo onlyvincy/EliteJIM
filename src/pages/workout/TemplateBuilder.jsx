@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useStore } from '../../store/useStore';
 import { Plus, ArrowLeft, Check, Trash2 } from 'lucide-react';
-import { ExerciseAutocomplete } from '../components/ExerciseAutocomplete';
+import { ExerciseAutocomplete } from '../../components/ExerciseAutocomplete';
 
 const REPS_PRESETS = ['4-6', '6-8', '8-10', '10-12', '12-15', '15-20'];
 
@@ -24,9 +24,19 @@ function NumInput({ label, value, onChange, min = 0, step = 1, format }) {
 
 function TemplateBuilder() {
   const navigate = useNavigate();
+  const location = useLocation();
   const addTemplate = useStore(state => state.addTemplate);
-  const [name, setName] = useState('');
-  const [exercises, setExercises] = useState([]);
+  const updateTemplate = useStore(state => state.updateTemplate);
+  
+  const editTemplateData = location.state?.template;
+  const isEditing = !!editTemplateData;
+
+  const [name, setName] = useState(isEditing ? editTemplateData.name || '' : '');
+  const [exercises, setExercises] = useState(
+    isEditing 
+      ? (editTemplateData.exercises || []).map((ex, i) => ({ ...ex, id: ex.id || `ex-${Date.now()}-${i}` }))
+      : []
+  );
 
   const addEx = () => setExercises(p => [...p, { id: Date.now(), name: '', setsCount: 3, targetReps: '8-10', restTime: 90 }]);
   const updEx = (id, field, val) => setExercises(p => p.map(e => e.id === id ? { ...e, [field]: val } : e));
@@ -36,7 +46,12 @@ function TemplateBuilder() {
     if (!name.trim()) return alert('Inserisci il nome della scheda');
     if (!exercises.length) return alert('Aggiungi almeno un esercizio');
     if (exercises.some(e => !e.name.trim())) return alert('Tutti gli esercizi devono avere un nome');
-    addTemplate({ name, exercises });
+    
+    if (isEditing) {
+      updateTemplate({ id: editTemplateData.id, name, exercises });
+    } else {
+      addTemplate({ name, exercises });
+    }
     navigate('/');
   };
 
@@ -61,7 +76,7 @@ function TemplateBuilder() {
         <button onClick={() => navigate('/')} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', padding: '8px', color: 'rgba(255,255,255,0.6)', display: 'flex', width: 'auto' }}>
           <ArrowLeft size={20} />
         </button>
-        <span style={{ flex: 1, fontWeight: '800', fontSize: '1rem', color: 'white' }}>Nuova Scheda</span>
+        <span style={{ flex: 1, fontWeight: '800', fontSize: '1rem', color: 'white' }}>{isEditing ? 'Modifica Scheda' : 'Nuova Scheda'}</span>
         <button onClick={handleSave} style={{
           background: isValid ? 'linear-gradient(135deg, #00b8d4 0%, #0090b0 100%)' : 'rgba(255,255,255,0.07)',
           border: 'none', borderRadius: '10px', padding: '8px 16px',
@@ -105,10 +120,11 @@ function TemplateBuilder() {
             </p>
 
             {exercises.map((ex, idx) => (
-              <div key={ex.id} style={{
+              <div key={ex.id || idx} style={{
                 background: 'rgba(255,255,255,0.025)',
                 border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '14px', marginBottom: '10px', overflow: 'hidden'
+                borderRadius: '14px', marginBottom: '10px', 
+                position: 'relative', zIndex: exercises.length - idx
               }}>
                 {/* Name row */}
                 <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
@@ -178,4 +194,34 @@ function TemplateBuilder() {
   );
 }
 
-export default TemplateBuilder;
+class TemplateBuilderErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("TemplateBuilder Crash:", error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', color: 'red', background: 'black', minHeight: '100vh', wordBreak: 'break-all' }}>
+          <h2>TemplateBuilder ERRORE:</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px', marginTop: '10px' }}>{this.state.error?.toString()}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '10px', marginTop: '10px', color: '#ffb3b3' }}>{this.state.errorInfo?.componentStack}</pre>
+          <p style={{ marginTop: '20px', color: 'white', fontSize: '14px' }}>Fai uno screenshot di questa schermata!</p>
+        </div>
+      );
+    }
+    return <TemplateBuilder />;
+  }
+}
+
+export default TemplateBuilderErrorBoundary;

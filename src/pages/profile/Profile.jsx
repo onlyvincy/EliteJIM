@@ -1,74 +1,26 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
-import { Download, Upload, Calendar, Clock, Dumbbell, ChevronDown, ChevronUp, User, Settings as SettingsIcon, Target, Zap, Edit2, Trash2, X, Check, Flame, Trophy } from 'lucide-react';
-import { SwipeToDelete } from '../components/SwipeToDelete';
-import { calculateLast7DaysVolume, getVolumeStatus, RP_LANDMARKS } from '../utils/rpVolume';
-import { EXERCISES_DB, EXERCISE_CATEGORIES } from '../data/exercises';
-import { getRankByXp, getMuscleLevelByXp } from '../utils/gamification';
+import { useStore } from '../../store/useStore';
+import { Calendar, Clock, Dumbbell, ChevronDown, ChevronUp, User, Settings as SettingsIcon, Target, Zap, Trash2, X, Flame, Trophy, Check, Edit2 } from 'lucide-react';
+import { SwipeToDelete } from '../../components/SwipeToDelete';
+import { calculateLast7DaysVolume, getVolumeStatus, RP_LANDMARKS } from '../../utils/rpVolume';
+import { EXERCISES_DB, getExerciseCategories, normalizeName } from '../../data/exercises';
+import { getRankByXp } from '../../utils/gamification';
 import './Profile.css';
 
 function Profile() {
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
   const history = useStore(state => state.history);
   const scienceReport = useStore(state => state.scienceReport);
   const deleteWorkout = useStore(state => state.deleteWorkout);
   const userXP = useStore(state => state.userXP);
   const currentStreak = useStore(state => state.currentStreak);
-  const muscleXP = useStore(state => state.muscleXP) || {};
+  const showScience = useStore(state => state.showScience);
+  const _customExercises = useStore(state => state.customExercises);
+  const customExercises = useMemo(() => _customExercises || [], [_customExercises]);
 
   const [expandedSessions, setExpandedSessions] = useState({});
   const [visibleWeeks, setVisibleWeeks] = useState(2);
-  const [editingWorkout, setEditingWorkout] = useState(null);
-
-  const saveEditedWorkout = () => {
-    if (!editingWorkout) return;
-    useStore.setState(state => ({
-      history: state.history.map(w => w.id === editingWorkout.id ? editingWorkout : w)
-    }));
-    setEditingWorkout(null);
-  };
-
-  const handleExport = () => {
-    const data = localStorage.getItem('elitejim-storage');
-    if (!data) {
-      alert("Nessun dato trovato da esportare.");
-      return;
-    }
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `EliteJIM_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImport = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target.result;
-        const parsed = JSON.parse(content);
-        if (!parsed.state) {
-          alert("Il file non sembra essere un backup di EliteJIM valido.");
-          return;
-        }
-        if (window.confirm("Attenzione: Importare questo file sovrascriverà tutte le tue schede e la cronologia attuali. Sei sicuro di voler procedere?")) {
-          localStorage.setItem('elitejim-storage', JSON.stringify(parsed));
-          window.location.reload();
-        }
-      } catch (err) {
-        alert("Errore durante la lettura del file: " + err.message);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-  };
 
   // --- History Logic ---
   const handleDelete = (e, workoutId) => {
@@ -109,37 +61,6 @@ function Profile() {
     return w * (1 + r / 30);
   };
 
-  const loadTestData = () => {
-    if (!window.confirm("Attenzione: questo sovrascriverà il tuo storico attuale con dati di test. Sei sicuro?")) return;
-
-    const now = Date.now();
-    const day = 24 * 60 * 60 * 1000;
-
-    // Generate 12 workouts over the last 30 days (multiple weeks)
-    const mockHistory = Array.from({ length: 15 }).map((_, i) => {
-      const workoutTime = now - (30 - i * 2) * day; // Spread across several weeks
-      const progressFactor = i * 2;
-
-      return {
-        id: `mock-w-${i}`,
-        name: i % 2 === 0 ? 'Push Day' : 'Pull Day',
-        startTime: workoutTime,
-        endTime: workoutTime + 60 * 60 * 1000,
-        exercises: [
-          {
-            id: `mock-ex-${i}`,
-            name: i % 2 === 0 ? 'Panca Piana' : 'Trazioni',
-            sets: [
-              { id: 1, kg: String(60 + progressFactor), reps: '8', done: true }
-            ]
-          }
-        ]
-      };
-    });
-
-    useStore.setState({ history: mockHistory.reverse() });
-    alert("Dati di test caricati!");
-  };
 
   // --- Statistics Logic ---
   const stats = useMemo(() => {
@@ -167,8 +88,8 @@ function Profile() {
   // --- RP Volume Logic ---
   const rpVolumes = useMemo(() => {
     if (!history || history.length === 0) return null;
-    return calculateLast7DaysVolume(history, EXERCISES_DB);
-  }, [history]);
+    return calculateLast7DaysVolume(history, [...EXERCISES_DB, ...customExercises]);
+  }, [history, customExercises]);
 
   const welcomePhrase = useMemo(() => {
     if (history.length === 0) return "Inizia la tua sfida";
@@ -194,7 +115,8 @@ function Profile() {
     const currentWeek = Math.min(Math.max(1, weeksElapsed + 1), 12);
 
     // Calculate start of THIS biological week
-    const startOfCurrentWeek = scienceReport.timestamp + (currentWeek - 1) * MS_PER_WEEK;
+    // Add 12-hour buffer (43200000 ms) so today's early workouts are included even if report was just made
+    const startOfCurrentWeek = (scienceReport.timestamp + (currentWeek - 1) * MS_PER_WEEK) - (12 * 60 * 60 * 1000);
 
     let currentMonth = 1;
     if (currentWeek > 4 && currentWeek <= 8) currentMonth = 2;
@@ -224,20 +146,67 @@ function Profile() {
     // Gather sets done THIS week
     const setsDoneThisWeek = {};
     history.forEach(w => {
-      if (w.startTime >= startOfCurrentWeek) {
+      // Force Number conversion for robust comparison
+      if (Number(w.startTime) >= startOfCurrentWeek) {
         w.exercises.forEach(ex => {
-          const foundEx = EXERCISES_DB.find(e => e.name === ex.name);
-          const muscle = foundEx ? foundEx.category : null;
-
-          if (muscle && scienceReport.baseLandmarks[muscle]) {
-            setsDoneThisWeek[muscle] = (setsDoneThisWeek[muscle] || 0) + ex.sets.filter(s => s.done && !s.isDropset).length;
+          const allKnown = [...EXERCISES_DB, ...customExercises];
+          const normalizedExName = normalizeName(ex.name);
+          let foundEx = allKnown.find(e => normalizeName(e.name) === normalizedExName);
+          
+          // Only use primary category for Science to avoid counting secondary groups
+          let muscles = foundEx?.category ? [foundEx.category] : [];
+          
+          // Fuzzy fallback for Shoudlers, Abs & Back (Schiena)
+          if (muscles.length === 0) {
+            const fuzzyName = normalizedExName.toLowerCase();
+            if (fuzzyName.includes('spalle') || fuzzyName.includes('shoulder') || fuzzyName.includes('military') || fuzzyName.includes('lento avanti')) {
+              muscles = ['Spalle'];
+              console.log(`[DEBUG_SHOULDERS] Fuzzy match for "${ex.name}" -> Spalle`);
+            } else if (fuzzyName.includes('addome') || fuzzyName.includes('core') || fuzzyName.includes('crunch') || fuzzyName.includes('addominali')) {
+              muscles = ['Addome'];
+              console.log(`[DEBUG_CORE] Fuzzy match for "${ex.name}" -> Addome`);
+            } else if (fuzzyName.includes('schiena') || fuzzyName.includes('back') || fuzzyName.includes('lat machine') || fuzzyName.includes('rematore')) {
+              muscles = ['Dorso'];
+              console.log(`[DEBUG_BACK] Fuzzy match for "${ex.name}" -> Dorso`);
+            }
           }
+
+          // Map database categories to potential legacy keys in user's science report
+          const legacyMapping = {
+            'Dorso': 'Schiena',
+            'Spalle': 'Spalle (Deltoidi)',
+            'Gambe': 'Quadricipiti'
+          };
+
+          muscles.forEach(muscle => {
+            let targetKey = null;
+            
+            // 1. Check if the exact muscle exists in the report
+            if (scienceReport.baseLandmarks[muscle]) {
+              targetKey = muscle;
+            } 
+            // 2. Check if a legacy mapped muscle exists in the report
+            else if (legacyMapping[muscle] && scienceReport.baseLandmarks[legacyMapping[muscle]]) {
+              targetKey = legacyMapping[muscle];
+            } 
+            // 3. Fallbacks for reverse edge cases
+            else if (muscle === 'Schiena' && scienceReport.baseLandmarks['Dorso']) {
+              targetKey = 'Dorso';
+            } else if (muscle === 'Addominali' && scienceReport.baseLandmarks['Addome']) {
+              targetKey = 'Addome';
+            }
+
+            if (targetKey) {
+              const count = ex.sets.filter(s => s.done && !s.isDropset).length;
+              setsDoneThisWeek[targetKey] = (setsDoneThisWeek[targetKey] || 0) + count;
+            }
+          });
         });
       }
     });
 
     // Build the goals array
-    const goals = Object.keys(scienceReport.baseLandmarks).map(muscle => {
+    const goals = Object.keys(scienceReport.baseLandmarks || {}).map(muscle => {
       const target = getTargetForMuscle(muscle);
       const done = setsDoneThisWeek[muscle] || 0;
       const isFocus = (currentMonth === 1 && (scienceReport.focus1 || []).includes(muscle)) ||
@@ -269,7 +238,7 @@ function Profile() {
       startOfCurrentWeek,
       goals
     };
-  }, [scienceReport, history]);
+  }, [scienceReport, history, customExercises]);
 
   // --- Journey Logic (Weekly Grouping) ---
   const groupedHistory = useMemo(() => {
@@ -404,37 +373,65 @@ function Profile() {
         </div>
 
         {/* Muscle Levels Button */}
-        <div style={{ marginTop: '2.5rem', marginBottom: '1rem' }}>
-          <button
-            onClick={() => navigate('/levels')}
-            className="btn-primary"
-            style={{
-              width: '100%',
-              padding: '1.2rem',
-              fontSize: '1.2rem',
-              background: 'linear-gradient(135deg, #ffcc00 0%, #ff9500 100%)',
-              color: 'black',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '12px',
-              boxShadow: '0 8px 32px rgba(255,204,0,0.3)'
-            }}
-          >
-            <Zap size={24} color="black" fill="black" />
-            <span style={{ fontWeight: '800' }}>I Tuoi Livelli Muscolari</span>
-          </button>
-        </div>
+        {showScience && (
+          <div style={{ marginTop: '2.5rem', marginBottom: '1rem' }}>
+            <button
+              onClick={() => navigate('/levels')}
+              className="btn-primary"
+              style={{
+                width: '100%',
+                padding: '1.2rem',
+                fontSize: '1.2rem',
+                background: 'linear-gradient(135deg, #ffcc00 0%, #ff9500 100%)',
+                color: 'black',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                boxShadow: '0 8px 32px rgba(255,204,0,0.3)'
+              }}
+            >
+              <Zap size={24} color="black" fill="black" />
+              <span style={{ fontWeight: '800' }}>I Tuoi Livelli Muscolari</span>
+            </button>
+          </div>
+        )}
 
 
         {/* Science Mesocycle Sync Section */}
-        {scienceGoals && (
+        {showScience && scienceGoals && (
           <div style={{ marginTop: '2rem' }}>
-            <div className="section-header" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Target size={24} color="var(--primary-color)" />
-              <h2 className="section-title-premium" style={{ margin: 0, color: isBossFight ? '#ff3b30' : 'var(--text-main)' }}>
-                Obiettivi W{scienceGoals.currentWeek} {isBossFight && "💀"}
-              </h2>
+            <div className="section-header" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Target size={24} color="var(--primary-color)" />
+                <h2 className="section-title-premium" style={{ margin: 0, color: isBossFight ? '#ff3b30' : 'var(--text-main)' }}>
+                  Obiettivi W{scienceGoals.currentWeek} {isBossFight && "💀"}
+                </h2>
+              </div>
+              
+              {scienceGoals.currentWeek < 12 && (
+                <button
+                  onClick={() => {
+                    if (window.confirm("Sei sicuro di voler terminare l'attuale settimana scientifica e passare alla successiva? L'azione è irreversibile.")) {
+                      useStore.getState().advanceScienceWeek();
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(255,149,0,0.15)',
+                    color: '#ff9500',
+                    border: '1px solid rgba(255,149,0,0.3)',
+                    padding: '8px 14px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Termina Sett.
+                </button>
+              )}
             </div>
 
             <div className="card glass" style={{ padding: '1.5rem', borderRadius: '24px', border: '1px solid var(--primary-color)' }}>
@@ -489,7 +486,7 @@ function Profile() {
         )}
 
         {/* RP Volume Section */}
-        {rpVolumes && (
+        {showScience && rpVolumes && (
           <div style={{ marginTop: '2rem' }}>
             <div className="section-header" style={{ marginBottom: '1.5rem' }}>
               <h2 className="section-title-premium">
@@ -599,8 +596,12 @@ function Profile() {
                                 </div>
                               </div>
                               <div className="expand-icon" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <button onClick={(e) => { e.stopPropagation(); setEditingWorkout(JSON.parse(JSON.stringify(workout))); }} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: '4px' }}><Edit2 size={18} /></button>
-                                <button onClick={(e) => handleDelete(e, workout.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><Trash2 size={18} /></button>
+                                <button className="edit-workout-btn" onClick={(e) => { e.stopPropagation(); navigate(`/edit-workout/${workout.id}`); }}>
+                                  <Edit2 size={18} />
+                                </button>
+                                <button className="delete-workout-btn" onClick={(e) => handleDelete(e, workout.id)}>
+                                  <Trash2 size={18} />
+                                </button>
                                 <div style={{ opacity: 0.5, display: 'flex' }}>
                                   {isExpanded ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
                                 </div>
@@ -645,7 +646,6 @@ function Profile() {
                   </div>
                 </div>
               ))}
-
               {groupedHistory.length > visibleWeeks && (
                 <button
                   className="btn-show-more"
@@ -667,113 +667,33 @@ function Profile() {
                   Mostra settimana precedente
                 </button>
               )}
+              
+              <button
+                onClick={() => navigate('/history')}
+                style={{
+                  width: '100%',
+                  padding: '1rem',
+                  background: 'var(--primary-color-dim)',
+                  border: 'none',
+                  borderRadius: '16px',
+                  color: 'var(--primary-color)',
+                  fontSize: '0.95rem',
+                  fontWeight: '700',
+                  marginTop: '1.5rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Vai a tutto lo Storico →
+              </button>
             </div>
           )}
         </div>
 
-        {/* Sync & Backup Section */}
-        <div className="card glass data-management" style={{ borderRadius: '28px', marginTop: '2rem' }}>
-          <h2 className="section-title-premium" style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>Sicurezza Dati</h2>
-          <p className="description" style={{ marginBottom: '1.5rem', opacity: 0.7 }}>
-            Mantieni i tuoi progressi al sicuro esportando il backup o sincronizzando un file esistente.
-          </p>
-
-          <div className="action-buttons" style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn-secondary" onClick={handleExport} style={{ flex: 1, height: '54px', borderRadius: '16px' }}>
-              <Upload size={20} /> Esporta
-            </button>
-
-            <button className="btn-primary" onClick={() => fileInputRef.current?.click()} style={{ flex: 1, height: '54px', borderRadius: '16px' }}>
-              <Download size={20} /> Importa
-            </button>
-            <input
-              type="file"
-              accept=".json"
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              onChange={handleImport}
-            />
-          </div>
-
-          <button className="btn-ghost" onClick={loadTestData} style={{ marginTop: '1rem', height: '44px', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-muted)' }}>
-            Carica Dati Demo
-          </button>
-        </div>
-
-        {/* Edit Workout Modal */}
-        {editingWorkout && (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)',
-            zIndex: 9999, padding: '1rem',
-            overflowY: 'auto'
-          }}>
-            <div className="card glass" style={{ maxWidth: '600px', margin: '2rem auto', border: '1px solid var(--primary-color)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
-                <h3 style={{ margin: 0, color: 'var(--text-main)', fontSize: '1.2rem' }}>Modifica {editingWorkout.name}</h3>
-                <button onClick={() => setEditingWorkout(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)' }}><X size={24} /></button>
-              </div>
-
-              {editingWorkout.exercises.map((ex, exIdx) => (
-                <div key={ex.id} style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '12px' }}>
-                  <div style={{ fontWeight: '600', color: 'var(--primary-color)', marginBottom: '0.75rem' }}>{ex.name}</div>
-
-                  {ex.sets.map((set, setIdx) => (
-                    <div key={set.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <span style={{ width: '30px', color: 'var(--text-muted)' }}>S{setIdx + 1}</span>
-                      <input
-                        type="number"
-                        value={set.kg}
-                        onChange={(e) => {
-                          const w = { ...editingWorkout };
-                          w.exercises[exIdx].sets[setIdx].kg = e.target.value;
-                          setEditingWorkout(w);
-                        }}
-                        style={{ width: '60px', padding: '6px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
-                        placeholder="kg"
-                      />
-                      <span style={{ color: 'var(--text-muted)' }}>x</span>
-                      <input
-                        type="number"
-                        value={set.reps}
-                        onChange={(e) => {
-                          const w = { ...editingWorkout };
-                          w.exercises[exIdx].sets[setIdx].reps = e.target.value;
-                          setEditingWorkout(w);
-                        }}
-                        style={{ width: '60px', padding: '6px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
-                        placeholder="reps"
-                      />
-                      <button
-                        onClick={() => {
-                          const w = { ...editingWorkout };
-                          w.exercises[exIdx].sets[setIdx].done = !w.exercises[exIdx].sets[setIdx].done;
-                          setEditingWorkout(w);
-                        }}
-                        style={{
-                          width: '32px', height: '32px', borderRadius: '50%', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          marginLeft: 'auto',
-                          background: set.done ? 'rgba(52, 199, 89, 0.2)' : 'rgba(255,255,255,0.05)',
-                          color: set.done ? '#34c759' : 'var(--text-muted)'
-                        }}
-                      >
-                        <Check size={16} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ))}
-
-              <button
-                className="btn-primary"
-                onClick={saveEditedWorkout}
-                style={{ width: '100%', marginTop: '1rem', height: '54px', borderRadius: '16px' }}
-              >
-                Salva Modifiche
-              </button>
-            </div>
-          </div>
-        )}
 
       </main>
     </>

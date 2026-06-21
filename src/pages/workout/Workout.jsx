@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Check, X, ChevronLeft, Trash2, Clock } from 'lucide-react';
-import { useStore } from '../store/useStore';
-import { ExerciseAutocomplete } from '../components/ExerciseAutocomplete';
-import { SwipeToDelete } from '../components/SwipeToDelete';
-import { requestNotificationPermission, notifyTimerComplete } from '../utils/notifications';
+import { useStore } from '../../store/useStore';
+import { ExerciseAutocomplete } from '../../components/ExerciseAutocomplete';
+import { SwipeToDelete } from '../../components/SwipeToDelete';
+import { requestNotificationPermission, notifyTimerComplete } from '../../utils/notifications';
+import { normalizeName, EXERCISES_DB, getWeightStep } from '../../data/exercises';
 
 function Workout() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ function Workout() {
   useEffect(() => {
     if (!globalRestEndTime) { setIsResting(false); setRestTimeLeft(0); return; }
     setIsResting(true);
+
     const check = () => {
       const rem = Math.ceil((globalRestEndTime - Date.now()) / 1000);
       if (rem <= 0) { setIsResting(false); setRestTimeLeft(0); clearGlobalRestTimer(); notifyTimerComplete(); }
@@ -81,8 +83,8 @@ function Workout() {
   const handleUpdateExerciseNameLocally = (exerciseId, newName) => {
     useStore.setState(state => {
       if (!state.activeWorkout) return state;
-      const pastWk = state.history.find(w => w.exercises.some(e => e.name === newName));
-      const pastEx = pastWk?.exercises.find(e => e.name === newName);
+      const pastWk = state.history.find(w => w.exercises.some(e => normalizeName(e.name) === normalizeName(newName)));
+      const pastEx = pastWk?.exercises.find(e => normalizeName(e.name) === normalizeName(newName));
       return {
         activeWorkout: {
           ...state.activeWorkout,
@@ -110,14 +112,14 @@ function Workout() {
   return (
     <div style={{ minHeight: '100vh', background: '#080c10', display: 'flex', flexDirection: 'column' }}>
 
-      {/* ── STICKY HEADER ─────────────────── */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(8,12,16,0.97)', backdropFilter: 'blur(24px)',
-        borderBottom: '1px solid rgba(0,184,212,0.15)',
-        padding: '10px 14px',
-        display: 'flex', alignItems: 'center', gap: '8px'
-      }}>
+      {/* ── STICKY HEADER & TIMER ─────────────────── */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 100, display: 'flex', flexDirection: 'column' }}>
+        <div style={{
+          background: 'rgba(8,12,16,0.97)', backdropFilter: 'blur(24px)',
+          borderBottom: isResting ? 'none' : '1px solid rgba(0,184,212,0.15)',
+          padding: '10px 14px',
+          display: 'flex', alignItems: 'center', gap: '8px'
+        }}>
         {/* Back — fixed width */}
         <button onClick={() => navigate('/')} style={{
           flexShrink: 0,
@@ -145,37 +147,48 @@ function Workout() {
         </div>
 
         {/* Termina — fixed width */}
-        <button onClick={handleFinishWorkout} style={{
-          flexShrink: 0,
-          background: 'linear-gradient(135deg, #00b8d4 0%, #0090b0 100%)',
-          border: 'none', borderRadius: '10px', padding: '9px 16px',
-          color: 'white', fontWeight: '800', fontSize: '0.88rem',
-          boxShadow: '0 4px 14px rgba(0,184,212,0.3)', width: 'auto'
-        }}>
-          Termina
+        <button 
+          onClick={handleFinishWorkout} 
+          style={{
+            flexShrink: 0,
+            background: 'linear-gradient(135deg, #00b8d4 0%, #00e5ff 100%)',
+            border: 'none',
+            borderRadius: '10px',
+            padding: '8px 16px',
+            color: 'white',
+            fontSize: '0.85rem',
+            fontWeight: '800',
+            boxShadow: '0 4px 12px rgba(0,184,212,0.3)',
+            cursor: 'pointer',
+            zIndex: 110
+          }}
+        >
+          TERMINA
         </button>
-      </div>
-
-      {/* ── REST TIMER ────────────────────── */}
-      {isResting && (
-        <div style={{
-          background: 'rgba(0,100,130,0.2)',
-          borderBottom: '1px solid rgba(0,184,212,0.2)',
-          padding: '10px 16px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-        }}>
-          <div>
-            <p style={{ margin: 0, fontSize: '0.62rem', color: '#00b8d4', fontWeight: '800', letterSpacing: '1px' }}>⏱ RECUPERO</p>
-            <p style={{ margin: '1px 0 0', fontWeight: '900', fontSize: '1.8rem', color: 'white', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmtRest(restTimeLeft)}</p>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => setGlobalRestEndTime(globalRestEndTime + 30000)} style={{ background: 'rgba(0,184,212,0.15)', border: '1px solid rgba(0,184,212,0.25)', borderRadius: '10px', padding: '7px 14px', color: '#00b8d4', fontWeight: '800', fontSize: '0.85rem' }}>+30s</button>
-            <button onClick={() => clearGlobalRestTimer()} style={{ background: 'rgba(255,59,48,0.15)', border: '1px solid rgba(255,59,48,0.2)', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3b30' }}>
-              <X size={18} />
-            </button>
-          </div>
         </div>
-      )}
+
+        {/* ── REST TIMER ────────────────────── */}
+        {isResting && (
+          <div style={{
+            background: 'rgba(4, 25, 35, 0.95)', /* Darker, less transparent background so scrolled content isn't visible */
+            backdropFilter: 'blur(24px)',
+            borderBottom: '1px solid rgba(0,184,212,0.2)',
+            padding: '10px 16px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+          }}>
+            <div>
+              <p style={{ margin: 0, fontSize: '0.62rem', color: '#00b8d4', fontWeight: '800', letterSpacing: '1px' }}>⏱ RECUPERO</p>
+              <p style={{ margin: '1px 0 0', fontWeight: '900', fontSize: '1.8rem', color: 'white', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmtRest(restTimeLeft)}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => setGlobalRestEndTime(globalRestEndTime + 30000)} style={{ background: 'rgba(0,184,212,0.15)', border: '1px solid rgba(0,184,212,0.25)', borderRadius: '10px', padding: '7px 14px', color: '#00b8d4', fontWeight: '800', fontSize: '0.85rem' }}>+30s</button>
+              <button onClick={() => clearGlobalRestTimer()} style={{ background: 'rgba(255,59,48,0.15)', border: '1px solid rgba(255,59,48,0.2)', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ff3b30' }}>
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── EXERCISES ─────────────────────── */}
       <div style={{ flex: 1, padding: '12px 14px 120px' }}>
@@ -190,7 +203,9 @@ function Workout() {
         )}
 
         {activeWorkout.exercises.map((ex, idx) => {
-          const weightStep = (ex.name || '').toLowerCase().includes('manubri') ? 2 : 2.5;
+          const customExercises = useStore.getState().customExercises || [];
+          const allDB = [...EXERCISES_DB, ...customExercises];
+          const weightStep = getWeightStep(ex, allDB);
           const fatigue = exerciseFatigue[ex.id] || 'yellow';
           const doneCount = ex.sets.filter(s => s.done).length;
 
@@ -198,7 +213,8 @@ function Workout() {
             <div key={ex.id} style={{
               background: 'rgba(255,255,255,0.025)',
               border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: '16px', marginBottom: '10px', overflow: 'hidden'
+              borderRadius: '16px', marginBottom: '10px', 
+              position: 'relative', zIndex: activeWorkout.exercises.length - idx
             }}>
               {/* Exercise name row */}
               <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>

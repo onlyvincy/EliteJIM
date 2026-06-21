@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { useStore } from '../store/useStore';
-import { RefreshCw, Zap, Target, BookOpen, Calendar, ChevronRight, ChevronLeft, AlertTriangle } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useStore } from '../../store/useStore';
+import { RefreshCw, Zap, Target, BookOpen, Calendar, ChevronRight, ChevronLeft, AlertTriangle, Pause, Play, Clock, CalendarClock } from 'lucide-react';
+import { EXERCISES_DB } from '../../data/exercises';
+import { calculateScienceVolume } from '../../utils/rpVolume';
 import './Science.css';
 import './BossFight.css';
 
@@ -13,7 +15,8 @@ const RP_BASE_LANDMARKS = {
   'Spalle': { mev: 8, mav: 12, mrv: 22 },
   'Bicipiti': { mev: 8, mav: 10, mrv: 20 },
   'Tricipiti': { mev: 6, mav: 10, mrv: 18 },
-  'Polpacci': { mev: 8, mav: 12, mrv: 20 }
+  'Polpacci': { mev: 8, mav: 12, mrv: 20 },
+  'Addome': { mev: 8, mav: 12, mrv: 20 }
 };
 
 const MUSCLE_GROUPS = Object.keys(RP_BASE_LANDMARKS);
@@ -82,7 +85,7 @@ function determineStrengthLevel(bw, bench, squat, deadlift, gender) {
   // Intermediate: Bench 1.0-1.5x, Squat 1.2-1.8x, DL 1.5-2.0x
   // Advanced: Bench > 1.5x, Squat > 1.8x, DL > 2.0x
   // Women standards are generally ~60-70% of men's ratios
-  
+
   const mult = gender === 'female' ? 0.7 : 1.0;
   let points = 0; // 0=Beginner, 1=Intermediate, 2=Advanced
 
@@ -109,13 +112,49 @@ function Dashboard({ report, reset }) {
   if (!report) return null;
 
   // Calculate current week (1 to 12)
+  // If paused, freeze the elapsed time at the moment of pause
   const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
-  const weeksElapsed = Math.floor((Date.now() - report.timestamp) / MS_PER_WEEK);
+  const effectiveNow = report.paused ? (report.pauseStartTime || Date.now()) : Date.now();
+  const weeksElapsed = Math.floor((effectiveNow - report.timestamp) / MS_PER_WEEK);
   const currentWeekNum = Math.min(Math.max(1, weeksElapsed + 1), 12); // Bound 1-12
-  
+
+  // Compute exact end date of current week (always at midnight since timestamp is midnight-aligned)
+  const currentWeekEndMs = report.timestamp + currentWeekNum * MS_PER_WEEK;
+  const currentWeekEndDate = new Date(currentWeekEndMs);
+  const weekEndFormatted = currentWeekEndDate.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+
   // Forecasting State
   const [selectedWeek, setSelectedWeek] = useState(currentWeekNum);
   const weekToDisplay = selectedWeek;
+
+  // Access history and exercises for actual sets calculation
+  const pauseScienceWeek = useStore(state => state.pauseScienceWeek);
+  const resumeScienceWeek = useStore(state => state.resumeScienceWeek);
+  const delayScienceWeek = useStore(state => state.delayScienceWeek);
+  const saveScienceReport = useStore(state => state.saveScienceReport);
+
+  const history = useStore(state => state.history);
+  const customExercises = useStore(state => state.customExercises || []);
+  const allExercisesDB = useMemo(() => [...EXERCISES_DB, ...customExercises], [customExercises]);
+
+  // Calculate actual completed sets per muscle group for each week of the mesocycle
+  // Uses the same counting logic as the Profile page (primary category only + fuzzy matching)
+  const getActualSetsForWeek = useMemo(() => {
+    const MS_PER_WEEK_CONST = 7 * 24 * 60 * 60 * 1000;
+    const mesoStart = report.timestamp;
+    const weekMuscleMap = {};
+
+    for (let w = 1; w <= 12; w++) {
+      // Add 12-hour buffer same as Profile
+      const weekStart = (mesoStart + (w - 1) * MS_PER_WEEK_CONST) - (12 * 60 * 60 * 1000);
+      const weekEnd = mesoStart + w * MS_PER_WEEK_CONST - (12 * 60 * 60 * 1000);
+      const volumes = calculateScienceVolume(history, allExercisesDB, report.baseLandmarks, weekStart, weekEnd);
+      const hasData = Object.values(volumes).some(v => v > 0);
+      if (hasData) weekMuscleMap[w] = volumes;
+    }
+
+    return weekMuscleMap;
+  }, [history, allExercisesDB, report.timestamp, report.baseLandmarks]);
 
   let currentMonth = 1;
   if (weekToDisplay > 4 && weekToDisplay <= 8) currentMonth = 2;
@@ -123,17 +162,17 @@ function Dashboard({ report, reset }) {
 
   const isBossFight = weekToDisplay === 4 || weekToDisplay === 8;
 
-  const expLabel = { 
-    'beginner': 'Principiante', 
-    'intermediate': 'Intermedio', 
-    'advanced': 'Avanzato' 
+  const expLabel = {
+    'beginner': 'Principiante',
+    'intermediate': 'Intermedio',
+    'advanced': 'Avanzato'
   }[report.experienceLevel];
 
   // Helper to get exactly how many sets we need THIS week for a specific muscle
   const getTargetForMuscle = (muscle) => {
     const lm = report.baseLandmarks[muscle];
     if (!lm) return 0;
-    
+
     // Mesocycle 3 (Weeks 9-12) is resensitization/deload
     if (currentMonth === 3) {
       if (weekToDisplay === 9 || weekToDisplay === 10) return Math.max(0, lm.mev - 2); // Deload
@@ -141,9 +180,9 @@ function Dashboard({ report, reset }) {
     }
 
     // Determine if it's currently focused
-    const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) || 
-                    (currentMonth === 2 && report.focus2.includes(muscle));
-    
+    const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) ||
+      (currentMonth === 2 && report.focus2.includes(muscle));
+
     if (!isFocus) {
       // Maintenance
       return lm.mev;
@@ -152,7 +191,7 @@ function Dashboard({ report, reset }) {
     // It's in focus. We span from MAV to MRV over 4 weeks.
     // Week relative to the month (1, 2, 3, 4)
     const relativeWeek = weekToDisplay - ((currentMonth - 1) * 4);
-    
+
     // Total series to add across the 4 weeks
     // Target calc logic
     const gap = lm.mrv - lm.mav;
@@ -186,20 +225,22 @@ function Dashboard({ report, reset }) {
 
   const getWeekLabels = () => {
     const arr = [];
-    for(let i = 1; i <= 12; i++) arr.push(i);
+    for (let i = 1; i <= 12; i++) arr.push(i);
     return arr;
   };
 
   return (
     <>
       <header className="app-header">
-        <h1>Scienza</h1>
-        <p className="subtitle">Il tuo protocollo personalizzato</p>
+        <div className="header-content">
+          <h1>Scienza</h1>
+          <p className="subtitle">Il tuo protocollo personalizzato</p>
+        </div>
       </header>
-      
+
       <main className="app-main">
         <div className="science-container" style={{ animation: 'none' }}>
-          
+
           <div className="report-header">
             <h2>Il tuo Mesociclo V2</h2>
             <p style={{ color: 'var(--text-muted)' }}>Status Coefficiente Forza: <strong>{expLabel}</strong></p>
@@ -211,17 +252,102 @@ function Dashboard({ report, reset }) {
           <div className="summary-grid">
             <div className="summary-card">
               <span className="summary-label">Mese Stimato</span>
-              <span className="summary-value" style={{ fontSize: '1.4rem' }}>{currentMonth} <span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>/ 3</span></span>
+              <span className="summary-value" style={{ fontSize: '1.4rem' }}>{currentMonth} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ 3</span></span>
             </div>
             <div className="summary-card">
               <span className="summary-label">Settimana Attuale</span>
-              <span className="summary-value" style={{ fontSize: '1.4rem', color: 'var(--primary-color)' }}>{currentWeekNum} <span style={{fontSize: '0.9rem', color: 'var(--text-muted)'}}>/ 12</span></span>
+              <span className="summary-value" style={{ fontSize: '1.4rem', color: 'var(--primary-color)' }}>{currentWeekNum} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ 12</span></span>
+            </div>
+          </div>
+
+          {/* Week End Info + Controls */}
+          <div style={{
+            background: report.paused ? 'rgba(255, 149, 0, 0.08)' : 'rgba(0,0,0,0.3)',
+            border: `1px solid ${report.paused ? 'rgba(255, 149, 0, 0.4)' : 'rgba(255,255,255,0.07)'}`,
+            borderRadius: '16px',
+            padding: '14px 16px',
+            marginBottom: '1rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            {/* Week end date row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <CalendarClock size={18} color={report.paused ? '#ff9500' : 'var(--primary-color)'} style={{ flexShrink: 0 }} />
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' }}>
+                  Fine Week {currentWeekNum}
+                </span>
+                <span style={{ fontWeight: '700', fontSize: '1rem', color: report.paused ? '#ff9500' : 'var(--text-main)' }}>
+                  {weekEndFormatted} · 00:00
+                  {report.paused && <span style={{ marginLeft: '8px', fontSize: '0.8rem', color: '#ff9500', fontWeight: '600' }}>⏸ In pausa</span>}
+                </span>
+              </div>
+            </div>
+
+            {/* Controls row */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Pause / Resume button */}
+              <button
+                onClick={() => report.paused ? resumeScienceWeek() : pauseScienceWeek()}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: `1px solid ${report.paused ? 'rgba(52, 199, 89, 0.5)' : 'rgba(255, 149, 0, 0.5)'}`,
+                  background: report.paused ? 'rgba(52, 199, 89, 0.12)' : 'rgba(255, 149, 0, 0.12)',
+                  color: report.paused ? '#34c759' : '#ff9500',
+                  fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer'
+                }}
+              >
+                {report.paused ? <Play size={14} /> : <Pause size={14} />}
+                {report.paused ? 'Riprendi' : 'Pausa'}
+              </button>
+
+              {/* Delay buttons — disabled if paused */}
+              <button
+                onClick={() => !report.paused && delayScienceWeek(1)}
+                disabled={report.paused}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: report.paused ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
+                  color: report.paused ? 'var(--text-muted)' : 'var(--text-main)',
+                  fontSize: '0.85rem', fontWeight: '600',
+                  cursor: report.paused ? 'not-allowed' : 'pointer',
+                  opacity: report.paused ? 0.5 : 1
+                }}
+              >
+                <Clock size={14} />
+                +1 giorno
+              </button>
+
+              <button
+                onClick={() => !report.paused && delayScienceWeek(2)}
+                disabled={report.paused}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '8px 14px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: report.paused ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
+                  color: report.paused ? 'var(--text-muted)' : 'var(--text-main)',
+                  fontSize: '0.85rem', fontWeight: '600',
+                  cursor: report.paused ? 'not-allowed' : 'pointer',
+                  opacity: report.paused ? 0.5 : 1
+                }}
+              >
+                <Clock size={14} />
+                +2 giorni
+              </button>
             </div>
           </div>
 
           {/* Forecasting Week Selector */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <button 
+            <button
               onClick={() => setSelectedWeek(prev => Math.max(1, prev - 1))}
               disabled={selectedWeek === 1}
               style={{ background: 'transparent', border: 'none', color: selectedWeek === 1 ? 'var(--text-muted)' : 'var(--primary-color)', cursor: selectedWeek === 1 ? 'not-allowed' : 'pointer' }}>
@@ -233,7 +359,7 @@ function Dashboard({ report, reset }) {
                 Settimana {selectedWeek}
               </strong>
             </div>
-            <button 
+            <button
               onClick={() => setSelectedWeek(prev => Math.min(12, prev + 1))}
               disabled={selectedWeek === 12}
               style={{ background: 'transparent', border: 'none', color: selectedWeek === 12 ? 'var(--text-muted)' : 'var(--primary-color)', cursor: selectedWeek === 12 ? 'not-allowed' : 'pointer' }}>
@@ -246,10 +372,10 @@ function Dashboard({ report, reset }) {
               <Target size={18} color={isBossFight ? '#ff3b30' : "var(--primary-color)"} />
               {isBossFight ? "BOSS FIGHT: Settimana MRV" : `Obiettivi Settimana ${selectedWeek}`}
             </h3>
-            
+
             {isBossFight && (
               <p style={{ color: '#ff3b30', fontSize: '0.85rem', marginBottom: '1rem', fontWeight: '600', animation: 'pulse 2s infinite' }}>
-                <AlertTriangle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>
+                <AlertTriangle size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
                 Raggiungi il Massimo Volume Recuperabile. Usa tutto lo sforzo che hai.
               </p>
             )}
@@ -257,10 +383,10 @@ function Dashboard({ report, reset }) {
             <div className="focus-list">
               {Object.keys(report.baseLandmarks).map(muscle => {
                 const targetSets = getTargetForMuscle(muscle);
-                const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) || 
-                                (currentMonth === 2 && report.focus2.includes(muscle));
+                const isFocus = (currentMonth === 1 && report.focus1.includes(muscle)) ||
+                  (currentMonth === 2 && report.focus2.includes(muscle));
                 const badge = getPhaseBadge(muscle, targetSets);
-                                
+
                 return (
                   <div key={muscle} className="focus-item" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', marginBottom: '4px', alignItems: 'center' }}>
                     <span className="focus-item-label" style={{ color: isFocus ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: isFocus ? '600' : 'normal', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -271,9 +397,23 @@ function Dashboard({ report, reset }) {
                         </span>
                       )}
                     </span>
-                    <span className="focus-item-value" style={{ color: isFocus ? 'var(--primary-color)' : 'var(--text-main)', fontSize: '1.1rem' }}>
-                      {targetSets} serie
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {weekToDisplay <= currentWeekNum && getActualSetsForWeek[weekToDisplay] && getActualSetsForWeek[weekToDisplay][muscle] !== undefined && (
+                        <span style={{
+                          fontSize: '0.85rem',
+                          fontWeight: '700',
+                          color: getActualSetsForWeek[weekToDisplay][muscle] >= targetSets ? 'var(--success-color, #34c759)' : 'var(--error-color, #ff3b30)',
+                          background: getActualSetsForWeek[weekToDisplay][muscle] >= targetSets ? 'rgba(52, 199, 89, 0.12)' : 'rgba(255, 59, 48, 0.12)',
+                          padding: '2px 8px',
+                          borderRadius: '6px'
+                        }}>
+                          {getActualSetsForWeek[weekToDisplay][muscle]}
+                        </span>
+                      )}
+                      <span className="focus-item-value" style={{ color: isFocus ? 'var(--primary-color)' : 'var(--text-main)', fontSize: '1.1rem' }}>
+                        {targetSets} serie
+                      </span>
+                    </div>
                   </div>
                 )
               })}
@@ -283,33 +423,17 @@ function Dashboard({ report, reset }) {
             </p>
           </div>
 
-          <div className="card glass" style={{ marginBottom: '2rem', borderColor: 'rgba(255,255,255,0.05)' }}>
-            <h3 style={{ marginBottom: '1rem', color: 'var(--text-main)', fontSize: '1.1rem' }}>
-              I Tuoi Landmark Base (Limiti Scientifici)
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
-              {Object.entries(report.baseLandmarks).map(([muscle, lm]) => (
-                <div key={muscle} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontWeight: '600', fontSize: '0.9rem', marginBottom: '8px', color: 'var(--primary-color)', textAlign: 'center' }}>{muscle}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{display: 'flex', justifyContent: 'space-between', paddingBottom: '2px', borderBottom: '1px dashed rgba(255,255,255,0.1)'}}><span>MEV:</span> <strong>{lm.mev}</strong></div>
-                    <div style={{display: 'flex', justifyContent: 'space-between', color: '#ff9500', paddingBottom: '2px', borderBottom: '1px dashed rgba(255,255,255,0.1)'}}><span>MAV:</span> <strong>{lm.mav}</strong></div>
-                    <div style={{display: 'flex', justifyContent: 'space-between', color: '#ff3b30'}}><span>MRV:</span> <strong>{lm.mrv}</strong></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+
 
 
           <h3 style={{ margin: '1rem 0', color: 'var(--text-main)', fontSize: '1.2rem' }}>Calendario Periodizzazione</h3>
-          
+
           <div className="calendar-grid">
             {getWeekLabels().map(w => {
               const isPast = w < currentWeekNum;
               const isCurrent = w === currentWeekNum;
               const isSelected = w === selectedWeek;
-              
+
               let typeClass = 'maintenance';
               if (w >= 9 && w <= 10) typeClass = 'deload';
               else if (w >= 11) typeClass = 'resens';
@@ -317,8 +441,8 @@ function Dashboard({ report, reset }) {
               else typeClass = 'overreaching';
 
               return (
-                <div 
-                  key={w} 
+                <div
+                  key={w}
                   onClick={() => setSelectedWeek(w)}
                   className={`cal-week ${isCurrent ? 'current' : ''} ${isPast ? 'past' : ''} ${typeClass} ${isSelected ? 'selected-week' : ''}`}
                   style={{ cursor: 'pointer', outline: isSelected ? '2px solid white' : 'none', outlineOffset: '2px' }}
@@ -375,6 +499,68 @@ function Science() {
     daysPerWeek: null
   });
 
+  const history = useStore(state => state.history);
+
+  // Auto-fill 1RM stats from history
+  useEffect(() => {
+    if (step === 1 && history.length > 0) {
+      const best1RMs = {
+        bench: 0,
+        squat: 0,
+        deadlift: 0
+      };
+
+      const calculate1RM = (w, r) => {
+        const weight = parseFloat(w);
+        const reps = parseInt(r, 10);
+        if (!weight || !reps || weight <= 0 || reps <= 0) return 0;
+        if (reps === 1) return weight;
+        return weight * (1 + reps / 30);
+      };
+
+      history.forEach(workout => {
+        workout.exercises.forEach(ex => {
+          let type = '';
+          if (ex.name === 'Panca Piana Bilanciere') type = 'bench';
+          else if (ex.name === 'Squat con Bilanciere') type = 'squat';
+          else if (ex.name === 'Stacchi da Terra (Deadlift)') type = 'deadlift';
+
+          if (type) {
+            ex.sets.forEach(s => {
+              if (s.done) {
+                const rm = calculate1RM(s.kg, s.reps);
+                if (rm > best1RMs[type]) {
+                  best1RMs[type] = rm;
+                }
+              }
+            });
+          }
+        });
+      });
+
+      setAnswers(prev => {
+        // Only update if current values are empty to avoid overwriting user manual tweaks
+        const newStats = { ...prev.stats };
+        let changed = false;
+
+        if (!newStats.bench && best1RMs.bench > 0) {
+          newStats.bench = Math.round(best1RMs.bench).toString();
+          changed = true;
+        }
+        if (!newStats.squat && best1RMs.squat > 0) {
+          newStats.squat = Math.round(best1RMs.squat).toString();
+          changed = true;
+        }
+        if (!newStats.deadlift && best1RMs.deadlift > 0) {
+          newStats.deadlift = Math.round(best1RMs.deadlift).toString();
+          changed = true;
+        }
+
+        return changed ? { ...prev, stats: newStats } : prev;
+      });
+    }
+  }, [step, history]);
+
   const handleSelect = (qId, value, isMulti, maxSelection) => {
     if (isMulti) {
       setAnswers(prev => {
@@ -405,65 +591,66 @@ function Science() {
     const bench = parseFloat(answers.stats.bench) || 0;
     const squat = parseFloat(answers.stats.squat) || 0;
     const deadlift = parseFloat(answers.stats.deadlift) || 0;
-    
+
     const level = determineStrengthLevel(bw, bench, squat, deadlift, answers.gender);
 
     // 2. Adjust MEV/MAV/MRV based on Level & Gender
     // Females generally need +1 MEV and can tolerate +2 MRV due to CNS fatigue differences
     // Beginners need less MAV, but MRV is higher relative to their MAV (they recover from total sets easier since load is absolutely lighter)
     // Advanced need more MAV to stimulate, but MRV ceiling is lower (loads are absolutely very high)
-    
-      const availableMuscles = answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m));
 
-      const finalLandmarks = availableMuscles.reduce((acc, m) => {
-        let b = RP_BASE_LANDMARKS[m];
-        
-        // Safety check if base landmarks unexpectedly fail
-        if (!b) return acc;
-        
-        let mev = b.mev;
-        let mav = b.mav;
-        let mrv = b.mrv;
+    const availableMuscles = answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m));
 
-        if (answers.gender === 'female') {
-          mev += 1;
-          mrv += 2;
-          mav += 1;
-        }
+    const finalLandmarks = availableMuscles.reduce((acc, m) => {
+      let b = RP_BASE_LANDMARKS[m];
 
-        if (level === 'beginner') {
-          mav -= 2; // Needs less to grow
-          mrv += 1; // Can tolerate more sets because absolute load is low
-        } else if (level === 'advanced') {
-          mav += 2; // Needs more stimulus to grow
-          mrv -= 2; // Can't tolerate as many sets because absolute load destroys CNS
-        }
+      // Safety check if base landmarks unexpectedly fail
+      if (!b) return acc;
 
-        acc[m] = { 
-          mev: Math.max(0, mev), 
-          mav: Math.max(0, mav), 
-          mrv: Math.max(0, mrv) 
-        };
-        return acc;
-      }, {});
+      let mev = b.mev;
+      let mav = b.mav;
+      let mrv = b.mrv;
 
-      // Sanity check: Ensure if legs='no', they are ABSOLUTELY excluded from final focus arrays to prevent ghost targets
-      const cleanFocus1 = answers.focus1.filter(m => finalLandmarks[m]);
-      const cleanFocus2 = answers.focus2.filter(m => finalLandmarks[m]);
+      if (answers.gender === 'female') {
+        mev += 1;
+        mrv += 2;
+        mav += 1;
+      }
 
-      const report = {
-        timestamp: Date.now(),
-        gender: answers.gender,
-        inputStats: answers.stats,
-        experienceLevel: level,
-        legsIncluded: answers.legs === 'yes',
-        focus1: cleanFocus1,
-        focus2: cleanFocus2,
-        baseLandmarks: finalLandmarks,
-        daysPerWeek: parseInt(answers.daysPerWeek, 10) || 4
+      if (level === 'beginner') {
+        mav -= 2; // Needs less to grow
+        mrv += 1; // Can tolerate more sets because absolute load is low
+      } else if (level === 'advanced') {
+        mav += 2; // Needs more stimulus to grow
+        mrv -= 2; // Can't tolerate as many sets because absolute load destroys CNS
+      }
+
+      acc[m] = {
+        mev: Math.max(0, mev),
+        mav: Math.max(0, mav),
+        mrv: Math.max(0, mrv)
       };
+      return acc;
+    }, {});
 
-      saveScienceReport(report);
+    // Sanity check: Ensure if legs='no', they are ABSOLUTELY excluded from final focus arrays to prevent ghost targets
+    const cleanFocus1 = answers.focus1.filter(m => finalLandmarks[m]);
+    const cleanFocus2 = answers.focus2.filter(m => finalLandmarks[m]);
+
+    const report = {
+      // Normalize to midnight of today (local time) so weeks always end at 00:00
+      timestamp: (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })(),
+      gender: answers.gender,
+      inputStats: answers.stats,
+      experienceLevel: level,
+      legsIncluded: answers.legs === 'yes',
+      focus1: cleanFocus1,
+      focus2: cleanFocus2,
+      baseLandmarks: finalLandmarks,
+      daysPerWeek: parseInt(answers.daysPerWeek, 10) || 4
+    };
+
+    saveScienceReport(report);
   };
 
   const resetQuiz = () => {
@@ -484,9 +671,9 @@ function Science() {
   }
 
   const currentQ = QUESTIONS[step] || QUESTIONS[0];
-  
+
   let isNextDisabled = false;
-  
+
   if (currentQ.type === 'inputs') {
     // Validate inputs
     const s = answers.stats;
@@ -501,7 +688,7 @@ function Science() {
     }
 
     const currentAnswer = answers[currentQ.id];
-    isNextDisabled = currentQ.isMulti 
+    isNextDisabled = currentQ.isMulti
       ? (currentAnswer ? currentAnswer.length : 0) === 0 // At least 1 to max N
       : !currentAnswer;
   }
@@ -509,8 +696,10 @@ function Science() {
   return (
     <>
       <header className="app-header">
-        <h1>Scienza</h1>
-        <p className="subtitle">L'algoritmo di Periodizzazione</p>
+        <div className="header-content">
+          <h1>Scienza</h1>
+          <p className="subtitle">L'algoritmo di Periodizzazione</p>
+        </div>
       </header>
 
       <main className="app-main">
@@ -518,8 +707,8 @@ function Science() {
           <div className="quiz-header">
             <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Passo {step + 1} di {QUESTIONS.length}</span>
             <div className="progress-bar-container">
-              <div 
-                className="progress-bar-fill" 
+              <div
+                className="progress-bar-fill"
                 style={{ width: `${((step + 1) / QUESTIONS.length) * 100}%` }}
               ></div>
             </div>
@@ -534,8 +723,8 @@ function Science() {
                 {currentQ.fields.map(f => (
                   <div className="input-field" key={f.id}>
                     <label>{f.label}</label>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       inputMode="decimal"
                       placeholder={f.placeholder}
                       value={answers.stats[f.id]}
@@ -548,12 +737,12 @@ function Science() {
             ) : (
               <div className="answers-grid">
                 {(currentQ.options || (answers.legs === 'yes' ? MUSCLE_GROUPS : MUSCLE_GROUPS.filter(m => !['Quadricipiti', 'Femorali', 'Glutei', 'Polpacci'].includes(m))).filter(m => currentQ.id === 'focus2' ? !answers.focus1.includes(m) : true).map(m => ({ value: m, label: m }))).map(opt => {
-                  const isSelected = currentQ.isMulti 
+                  const isSelected = currentQ.isMulti
                     ? (answers[currentQ.id] || []).includes(opt.value)
                     : answers[currentQ.id] === opt.value;
-                    
+
                   return (
-                    <div 
+                    <div
                       key={opt.value}
                       className={`answer-card ${isSelected ? 'selected' : ''}`}
                       onClick={() => handleSelect(currentQ.id, opt.value, currentQ.isMulti, currentQ.maxSelection)}
@@ -575,9 +764,9 @@ function Science() {
                   Indietro
                 </button>
               ) : <div></div>}
-              
-              <button 
-                className="quiz-btn next" 
+
+              <button
+                className="quiz-btn next"
                 disabled={isNextDisabled}
                 onClick={handleNext}
               >

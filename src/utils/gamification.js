@@ -1,3 +1,5 @@
+import { normalizeName } from '../data/exercises';
+
 export const RANKS = [
   { level: 0, title: 'Rame III', minXp: 0, color: '#B87333' },
   { level: 1, title: 'Rame II', minXp: 1000, color: '#B87333' },
@@ -75,29 +77,35 @@ export const calculateSessionScore = (workout, pastHistory, exercisesDb = []) =>
     return { xp: 0, grade: 'D', setsPerHour: 0, breakdown: [], muscleXpGained: {} };
   }
 
-  const durationMs = workout.endTime - workout.startTime;
+  const start = Number(workout.startTime) || 0;
+  const end = Number(workout.endTime) || 0;
+  const durationMs = end - start;
   const durationHours = durationMs / (1000 * 60 * 60);
   
   let doneSets = 0;
-  let totalVolume = 0;
   let overloadCount = 0;
-  const rawMuscleXp = {}; // Base XP tracked per muscle
-
-  // Map to find categories
-  const categoryMap = {};
-  exercisesDb.forEach(ex => {
-    categoryMap[ex.name] = ex.category;
-  });
-
+  const rawMuscleXp = {};
   // --- PASS 1: Determine which exercises achieved progressive overload ---
-  // An exercise is "overloaded" if current volume > best previous volume for that exercise
   const overloadedExercises = new Set();
+  
+  if (!workout.exercises) return { xp: 0, grade: 'D', setsPerHour: 0, breakdown: [], muscleXpGained: {} };
+
+  // Flatten exercisesDb and any others passed (like customExercises)
+  const allKnownExercises = Array.isArray(exercisesDb) ? exercisesDb : [];
+  
+  // Map for fast lookup of categories [primary, ...secondary]
+  const exerciseMetaMap = {};
+  allKnownExercises.forEach(ex => {
+    const cats = [ex.category];
+    if (ex.secondaryCategories) cats.push(...ex.secondaryCategories);
+    exerciseMetaMap[normalizeName(ex.name)] = cats.filter(Boolean);
+  });
 
   workout.exercises.forEach(ex => {
     if (pastHistory && pastHistory.length > 0) {
-      const pastWorkout = pastHistory.find(w => w.exercises.some(e => e.name === ex.name));
+      const pastWorkout = pastHistory.find(w => w.exercises.some(e => normalizeName(e.name) === normalizeName(ex.name)));
       if (pastWorkout) {
-        const pastEx = pastWorkout.exercises.find(e => e.name === ex.name);
+        const pastEx = pastWorkout.exercises.find(e => normalizeName(e.name) === normalizeName(ex.name));
         const pastVolume = pastEx.sets
           .filter(s => s.done && !s.isDropset)
           .reduce((acc, s) => acc + ((parseFloat(s.kg) || 0) * (parseInt(s.reps, 10) || 0)), 0);
@@ -105,7 +113,7 @@ export const calculateSessionScore = (workout, pastHistory, exercisesDb = []) =>
           .filter(s => s.done && !s.isDropset)
           .reduce((acc, s) => acc + ((parseFloat(s.kg) || 0) * (parseInt(s.reps, 10) || 0)), 0);
         if (currentVolume > pastVolume && pastVolume > 0) {
-          overloadedExercises.add(ex.name);
+          overloadedExercises.add(normalizeName(ex.name));
           overloadCount++;
         }
       }
@@ -113,29 +121,43 @@ export const calculateSessionScore = (workout, pastHistory, exercisesDb = []) =>
   });
 
   // --- PASS 2: Assign XP per set based on absolute tonnage ---
-  // KEY PRINCIPLE: XP is (kg * reps) / 10 ONLY if the exercise had overload.
-  // Without overload: only 5 symbolic XP — you stagnated, you barely progress.
-  // This means 100kg x 8 = 80 XP/set vs 50kg x 8 = 40 XP/set — load matters hugely.
   workout.exercises.forEach(ex => {
-    const category = categoryMap[ex.name];
-    const hadOverload = overloadedExercises.has(ex.name);
+    console.log(`[DEBUG] Processing exercise in score: "${ex.name}"`);
+    const categories = [...(exerciseMetaMap[normalizeName(ex.name)] || [])];
+    
+    // Fuzzy fallback for Shoudlers & Addome in gamification
+    if (categories.length === 0) {
+      const fuzzyName = normalizeName(ex.name).toLowerCase();
+      if (fuzzyName.includes('spalle') || fuzzyName.includes('shoulder') || fuzzyName.includes('military') || fuzzyName.includes('lento avanti')) {
+        categories.push('Spalle');
+      } else if (fuzzyName.includes('addome') || fuzzyName.includes('core') || fuzzyName.includes('crunch') || fuzzyName.includes('addominali')) {
+        categories.push('Addome');
+      } else if (fuzzyName.includes('schiena') || fuzzyName.includes('back') || fuzzyName.includes('lat machine') || fuzzyName.includes('rematore')) {
+        categories.push('Dorso');
+      }
+    }
+
+    const hadOverload = overloadedExercises.has(normalizeName(ex.name));
+    
+    // Safety check for categories to help debug
+    if (categories.length === 0 && ex.name) {
+      // If no categories found, we try one more attempt with absolute raw trim just in case 
+      // but usually normalizeName handles it.
+    }
 
     ex.sets.forEach(set => {
       if (set.done && !set.isDropset) {
         doneSets++;
         const kg = parseFloat(set.kg) || 0;
         const reps = parseInt(set.reps, 10) || 0;
-        totalVolume += kg * reps;
 
-        if (category) {
-          if (hadOverload) {
-            // XP scales directly with absolute load: heavier = much more XP
-            const setXp = Math.round((kg * reps) / 10);
-            rawMuscleXp[category] = (rawMuscleXp[category] || 0) + setXp;
-          } else {
-            // Stagnated: nearly zero XP — the system punishes lack of progress
-            rawMuscleXp[category] = (rawMuscleXp[category] || 0) + 5;
-          }
+        if (categories.length > 0) {
+          const setXp = hadOverload ? Math.round((kg * reps) / 10) : 5;
+          
+          // Distribute XP among all muscles (primary gets 100%, secondary gets 100% too for simplicity/fun)
+          categories.forEach(cat => {
+            rawMuscleXp[cat] = (rawMuscleXp[cat] || 0) + setXp;
+          });
         }
       }
     });
@@ -155,7 +177,7 @@ export const calculateSessionScore = (workout, pastHistory, exercisesDb = []) =>
   const isJunk = doneSets < 5;
   // "First timer" = no history to compare against (all exercises are new)
   const allNew = totalExercises > 0 && overloadedCount === 0 && 
-    workout.exercises.every(ex => !pastHistory?.find(w => w.exercises.some(e => e.name === ex.name)));
+    workout.exercises.every(ex => !pastHistory?.find(w => w.exercises.some(e => normalizeName(e.name) === normalizeName(ex.name))));
 
   let grade;
   let gradeLabel;
@@ -249,4 +271,68 @@ export const checkStreakInactivity = (lastWorkoutDateMs, currentStreak, xp) => {
   }
 
   return { newStreak, newXp, penalty, daysInactive };
+};
+
+export const recalculateTotalXpFromHistory = (history, exercisesDb = []) => {
+  console.log(`[DEBUG] recalculateTotalXpFromHistory started. History length: ${history?.length}`);
+  try {
+    if (!history || history.length === 0) {
+      return { userXP: 0, muscleXP: {}, currentStreak: 0, highestStreak: 0 };
+    }
+
+  // Sort by date ascending to process oldest sessions first
+  const sortedHistory = [...history].sort((a, b) => Number(a.startTime) - Number(b.startTime));
+  
+  let totalXP = 0;
+  const totalMuscleXP = {};
+  const rollingHistory = [];
+  
+  let currentStreak = 0;
+  let highestStreak = 0;
+  let lastWorkoutTime = null;
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+  sortedHistory.forEach(workout => {
+    // 1. Streak reset check
+    if (lastWorkoutTime) {
+      const startT = Number(workout.startTime) || 0;
+      const lastT = Number(lastWorkoutTime) || 0;
+      const daysInactive = Math.floor((startT - lastT) / MS_PER_DAY);
+      if (daysInactive >= 3) {
+        currentStreak = 0;
+      }
+    }
+
+    // 2. Calculate session score
+    const score = calculateSessionScore(workout, rollingHistory, exercisesDb);
+    totalXP += score.xp;
+    
+    // 3. Increment streak if workout is significant
+    if (score.doneSets >= 3) {
+      currentStreak++;
+    }
+    
+    highestStreak = Math.max(highestStreak, currentStreak);
+    lastWorkoutTime = Number(workout.startTime) || 0;
+
+    if (score.muscleXpGained) {
+      Object.keys(score.muscleXpGained).forEach(muscle => {
+        totalMuscleXP[muscle] = (totalMuscleXP[muscle] || 0) + score.muscleXpGained[muscle];
+      });
+    }
+    
+    // Add current workout to rolling history for future overload checks
+    rollingHistory.push(workout);
+  });
+
+    return {
+      userXP: totalXP,
+      muscleXP: totalMuscleXP,
+      currentStreak,
+      highestStreak
+    };
+  } catch (err) {
+    console.error("[CRITICAL ERROR] recalculateTotalXpFromHistory failed:", err);
+    throw err;
+  }
 };

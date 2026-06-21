@@ -1,3 +1,5 @@
+import { normalizeName } from '../data/exercises';
+
 export const RP_LANDMARKS = {
   // Landmarks in number of sets per week
   Petto: { MEV: 10, MAV_MIN: 12, MAV_MAX: 20, MRV: 22 },
@@ -12,8 +14,10 @@ export const RP_LANDMARKS = {
 };
 
 export const calculateLast7DaysVolume = (history, exercisesDb) => {
-  const now = Date.now();
-  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  // Define "Last 7 Days" as Today + previous 6 full calendar days
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sevenDaysAgo = today.getTime() - (6 * 24 * 60 * 60 * 1000);
   
   // Initialize volumes for each tracked category
   const volumes = {};
@@ -21,10 +25,14 @@ export const calculateLast7DaysVolume = (history, exercisesDb) => {
     volumes[cat] = 0;
   });
 
-  // Create a fast lookup map for exercise categories
+  // Create a fast lookup map: exercise name -> all categories (primary + secondary)
   const categoryMap = {};
   exercisesDb.forEach(ex => {
-    categoryMap[ex.name] = ex.category;
+    const allCats = [ex.category];
+    if (ex.secondaryCategories) {
+      allCats.push(...ex.secondaryCategories);
+    }
+    categoryMap[normalizeName(ex.name)] = allCats;
   });
 
   // Filter last 7 days workouts
@@ -32,12 +40,59 @@ export const calculateLast7DaysVolume = (history, exercisesDb) => {
 
   recentWorkouts.forEach(workout => {
     workout.exercises.forEach(ex => {
-      // Find category (fallback to checking if it's already a recognized name, though standard is passing exercisesDb)
-      const category = categoryMap[ex.name];
-      if (category && volumes[category] !== undefined) {
+      const categories = categoryMap[normalizeName(ex.name)];
+      if (categories) {
         // Count only completed sets, ignore dropsets for structural volume
         const completedSets = ex.sets.filter(s => s.done && !s.isDropset).length;
-        volumes[category] += completedSets;
+        // Distribute sets across ALL muscle groups this exercise targets
+        categories.forEach(cat => {
+          if (volumes[cat] !== undefined) {
+            volumes[cat] += completedSets;
+          }
+        });
+      }
+    });
+  });
+
+  return volumes;
+};
+
+/**
+ * Calculate completed sets per muscle group for a specific date range.
+ * Reuses the same category mapping as calculateLast7DaysVolume.
+ * @param {Array} history - workout history array
+ * @param {Array} exercisesDb - exercises database array
+ * @param {number} startTime - start timestamp (inclusive)
+ * @param {number} endTime - end timestamp (exclusive)
+ * @returns {Object} - { muscleName: completedSets }
+ */
+export const calculateVolumeForDateRange = (history, exercisesDb, startTime, endTime) => {
+  const volumes = {};
+  Object.keys(RP_LANDMARKS).forEach(cat => {
+    volumes[cat] = 0;
+  });
+
+  const categoryMap = {};
+  exercisesDb.forEach(ex => {
+    const allCats = [ex.category];
+    if (ex.secondaryCategories) {
+      allCats.push(...ex.secondaryCategories);
+    }
+    categoryMap[normalizeName(ex.name)] = allCats;
+  });
+
+  const rangeWorkouts = history.filter(w => w.startTime >= startTime && w.startTime < endTime);
+
+  rangeWorkouts.forEach(workout => {
+    workout.exercises.forEach(ex => {
+      const categories = categoryMap[normalizeName(ex.name)];
+      if (categories) {
+        const completedSets = ex.sets.filter(s => s.done && !s.isDropset).length;
+        categories.forEach(cat => {
+          if (volumes[cat] !== undefined) {
+            volumes[cat] += completedSets;
+          }
+        });
       }
     });
   });
@@ -85,4 +140,66 @@ export const getVolumeStatus = (sets, category) => {
       label: 'Superato MRV (Recupero a Rischio)' 
     };
   }
+};
+
+/**
+ * Calculate completed sets per muscle group for a specific date range,
+ * using the EXACT same logic as the Profile's "Obiettivi Settimanali" section.
+ * - Uses ONLY primary category (not secondaryCategories)
+ * - Has fuzzy fallback for unmatched exercises (Spalle, Dorso, Addome)
+ * - Has legacy key mapping for baseLandmarks compatibility
+ */
+export const calculateScienceVolume = (history, exercisesDb, baseLandmarks, startTime, endTime) => {
+  const setsDone = {};
+
+  const legacyMapping = {
+    'Dorso': 'Schiena',
+    'Spalle': 'Spalle (Deltoidi)',
+    'Gambe': 'Quadricipiti'
+  };
+
+  history.forEach(w => {
+    if (Number(w.startTime) < startTime || Number(w.startTime) >= endTime) return;
+
+    w.exercises.forEach(ex => {
+      const normalizedExName = normalizeName(ex.name);
+      let foundEx = exercisesDb.find(e => normalizeName(e.name) === normalizedExName);
+
+      // Only use primary category (same as Profile)
+      let muscles = foundEx?.category ? [foundEx.category] : [];
+
+      // Fuzzy fallback for unmatched exercises
+      if (muscles.length === 0) {
+        const fuzzyName = normalizedExName.toLowerCase();
+        if (fuzzyName.includes('spalle') || fuzzyName.includes('shoulder') || fuzzyName.includes('military') || fuzzyName.includes('lento avanti')) {
+          muscles = ['Spalle'];
+        } else if (fuzzyName.includes('addome') || fuzzyName.includes('core') || fuzzyName.includes('crunch') || fuzzyName.includes('addominali')) {
+          muscles = ['Addome'];
+        } else if (fuzzyName.includes('schiena') || fuzzyName.includes('back') || fuzzyName.includes('lat machine') || fuzzyName.includes('rematore')) {
+          muscles = ['Dorso'];
+        }
+      }
+
+      muscles.forEach(muscle => {
+        let targetKey = null;
+
+        if (baseLandmarks[muscle]) {
+          targetKey = muscle;
+        } else if (legacyMapping[muscle] && baseLandmarks[legacyMapping[muscle]]) {
+          targetKey = legacyMapping[muscle];
+        } else if (muscle === 'Schiena' && baseLandmarks['Dorso']) {
+          targetKey = 'Dorso';
+        } else if (muscle === 'Addominali' && baseLandmarks['Addome']) {
+          targetKey = 'Addome';
+        }
+
+        if (targetKey) {
+          const count = ex.sets.filter(s => s.done && !s.isDropset).length;
+          setsDone[targetKey] = (setsDone[targetKey] || 0) + count;
+        }
+      });
+    });
+  });
+
+  return setsDone;
 };

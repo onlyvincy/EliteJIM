@@ -1,23 +1,29 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { Home as HomeIcon, TrendingUp, User, Dna } from 'lucide-react';
-import Home from './pages/Home';
-import Workout from './pages/Workout';
-import ProgressOverload from './pages/ProgressOverload';
-import Science from './pages/Science';
-import Profile from './pages/Profile';
-import Settings from './pages/Settings';
-import TemplateBuilder from './pages/TemplateBuilder';
-import WorkoutRecap from './pages/WorkoutRecap';
-import MuscleLevels from './pages/MuscleLevels';
+import { useStore } from './store/useStore';
+import Home from './pages/home/Home';
+import Workout from './pages/workout/Workout';
+import ProgressOverload from './pages/progress/ProgressOverload';
+import Science from './pages/science/Science';
+import Profile from './pages/profile/Profile';
+import Settings from './pages/settings/Settings';
+import Exercises from './pages/settings/Exercises';
+import TemplateBuilder from './pages/workout/TemplateBuilder';
+import WorkoutRecap from './pages/workout/WorkoutRecap';
+import MuscleLevels from './pages/profile/MuscleLevels';
+import History from './pages/profile/History';
+import EditWorkout from './pages/profile/EditWorkout';
 import ReloadPrompt from './components/ReloadPrompt';
+import GlobalWorkoutBanner from './components/GlobalWorkoutBanner';
 import { SpeedInsights } from '@vercel/speed-insights/react';
 import './App.css';
 
 function Navigation() {
   const location = useLocation();
-  // Hide bottom nav on active workout session, template builder, settings, recap, and levels
-  if (['/workout', '/build', '/settings', '/recap', '/levels'].includes(location.pathname)) return null;
+  const showScience = useStore(state => state.showScience);
+  // Hide bottom nav on active workout session, template builder, settings, recap, history, and levels
+  if (['/workout', '/build', '/settings', '/recap', '/levels', '/settings/exercises', '/history'].includes(location.pathname) || location.pathname.startsWith('/edit-workout')) return null;
 
   return (
     <nav className="bottom-nav">
@@ -29,10 +35,12 @@ function Navigation() {
         <TrendingUp size={24} />
         <span>Progressi</span>
       </NavLink>
-      <NavLink to="/science" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-        <Dna size={24} />
-        <span>Scienza</span>
-      </NavLink>
+      {showScience && (
+        <NavLink to="/science" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Dna size={24} />
+          <span>Scienza</span>
+        </NavLink>
+      )}
       <NavLink to="/profile" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
         <User size={24} />
         <span>Profilo</span>
@@ -46,6 +54,7 @@ function App() {
     <BrowserRouter>
       <div className="app-container">
         <ReloadPrompt />
+        <GlobalWorkoutBanner />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/workout" element={<Workout />} />
@@ -53,9 +62,12 @@ function App() {
           <Route path="/science" element={<Science />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/exercises" element={<Exercises />} />
           <Route path="/build" element={<TemplateBuilder />} />
           <Route path="/recap" element={<WorkoutRecap />} />
           <Route path="/levels" element={<MuscleLevels />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/edit-workout/:workoutId" element={<EditWorkout />} />
         </Routes>
         <Navigation />
         <SpeedInsights />
